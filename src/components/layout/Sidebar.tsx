@@ -46,9 +46,9 @@ export function Sidebar({ categories, isAdmin, isLoggedIn, onNavigate, collapsib
           className={cn('flex min-w-0 items-center', !isCollapsed && 'gap-2')}
           aria-label="TubeClass 홈"
         >
-          <Image src="/brand/symbol.svg" alt="" width={32} height={32} priority className="h-8 w-8 shrink-0" />
+          <Image src="/brand/symbol.svg" alt="" width={32} height={32} priority className="h-8 w-8 shrink-0 invert dark:invert-0" />
           {!isCollapsed && (
-            <Image src="/brand/logo.svg" alt="TubeClass" width={101} height={32} priority className="h-8 w-auto shrink-0" />
+            <Image src="/brand/logo.svg" alt="TubeClass" width={101} height={32} priority className="h-8 w-auto shrink-0 invert dark:invert-0" />
           )}
         </Link>
         {collapsible && (
