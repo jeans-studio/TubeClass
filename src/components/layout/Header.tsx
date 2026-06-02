@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import { LogOut, User } from 'lucide-react'
+import { ChevronDown, LogOut, User } from 'lucide-react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import type { Profile } from '@/types'
 import { toast } from 'sonner'
@@ -69,16 +69,17 @@ export function Header({ user, profile, children }: HeaderProps) {
       <div className="flex-1" />
       <ThemeToggle />
       <DropdownMenu>
-        <DropdownMenuTrigger className="flex items-center gap-2 hover:opacity-80 transition-opacity outline-none">
-          <Avatar className="w-8 h-8">
+        <DropdownMenuTrigger className="flex max-w-48 items-center gap-1.5 rounded-md px-1 py-0.5 outline-none transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50">
+          <Avatar size="sm">
             {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
-            <AvatarFallback className="bg-secondary text-secondary-foreground text-xs font-semibold">
+            <AvatarFallback className="bg-secondary text-[10px] font-semibold text-secondary-foreground">
               {initials}
             </AvatarFallback>
           </Avatar>
-          <span className="text-sm font-medium text-foreground hidden sm:block">
+          <span className="hidden max-w-32 truncate text-xs font-medium text-foreground sm:block">
             {displayName}
           </span>
+          <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground sm:block" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuItem className="text-muted-foreground text-xs" disabled>

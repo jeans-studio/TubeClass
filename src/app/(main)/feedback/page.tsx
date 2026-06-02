@@ -1,13 +1,22 @@
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 import { MessageSquareText } from 'lucide-react'
 import { FeedbackForm } from './FeedbackForm'
+import { createClient } from '@/lib/supabase/server'
 
 export const metadata: Metadata = {
   title: '피드백 | TubeClass',
   description: 'TubeClass 피드백',
 }
 
-export default function FeedbackPage() {
+export default async function FeedbackPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/dashboard')
+  }
+
   return (
     <div className="w-full space-y-8 p-4 md:p-6">
       <section className="space-y-3">

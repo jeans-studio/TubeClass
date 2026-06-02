@@ -85,3 +85,14 @@ export interface VideoProgress {
   status: 'learning' | 'completed'
   updated_at: string
 }
+
+export interface Feedback {
+  id: string
+  category: string
+  content: string
+  author_user_id: string | null
+  author_email: string | null
+  status: 'new' | 'reviewing' | 'resolved' | 'deferred'
+  created_at: string
+  updated_at: string
+}

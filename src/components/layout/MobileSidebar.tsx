@@ -20,11 +20,12 @@ export function MobileSidebar({ categories, isAdmin, isLoggedIn }: MobileSidebar
       <SheetTrigger className="md:hidden inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-accent transition-colors outline-none">
         <Menu className="w-5 h-5" />
       </SheetTrigger>
-      <SheetContent side="left" className="p-0 w-64">
+      <SheetContent side="left" className="h-dvh max-h-dvh w-64 gap-0 overflow-hidden p-0">
         <Sidebar
           categories={categories}
           isAdmin={isAdmin}
           isLoggedIn={isLoggedIn}
+          collapsible={false}
           onNavigate={() => setOpen(false)}
         />
       </SheetContent>

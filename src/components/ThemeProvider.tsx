@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
-type Theme = 'light' | 'dark' | 'system'
+type Theme = 'light' | 'dark'
 
 interface ThemeContextValue {
   theme: Theme
@@ -15,14 +15,9 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 function getStoredTheme(): Theme {
   if (typeof window === 'undefined') return 'dark'
   const storedTheme = window.localStorage.getItem('theme')
-  return storedTheme === 'light' || storedTheme === 'dark' || storedTheme === 'system'
+  return storedTheme === 'light' || storedTheme === 'dark'
     ? storedTheme
     : 'dark'
-}
-
-function getSystemTheme(): 'light' | 'dark' {
-  if (typeof window === 'undefined') return 'dark'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
 function applyTheme(resolvedTheme: 'light' | 'dark') {
@@ -32,22 +27,11 @@ function applyTheme(resolvedTheme: 'light' | 'dark') {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(getStoredTheme)
-  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme)
-  const resolvedTheme = theme === 'system' ? systemTheme : theme
+  const resolvedTheme = theme
 
   useEffect(() => {
     applyTheme(resolvedTheme)
   }, [resolvedTheme])
-
-  useEffect(() => {
-    if (theme !== 'system') return
-
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleChange = () => setSystemTheme(media.matches ? 'dark' : 'light')
-
-    media.addEventListener('change', handleChange)
-    return () => media.removeEventListener('change', handleChange)
-  }, [theme])
 
   const value = useMemo<ThemeContextValue>(() => ({
     theme,

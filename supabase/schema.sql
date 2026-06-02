@@ -157,6 +157,45 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
+-- 8. 피드백
+create table if not exists public.feedbacks (
+  id uuid primary key default gen_random_uuid(),
+  category text not null,
+  content text not null,
+  author_user_id uuid references public.profiles(id) on delete set null,
+  author_email text,
+  status text not null default 'new' check (status in ('new', 'reviewing', 'resolved', 'deferred')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.feedbacks
+  add column if not exists author_user_id uuid references public.profiles(id) on delete set null;
+
+alter table public.feedbacks
+  add column if not exists author_email text;
+
+alter table public.feedbacks
+  add column if not exists status text not null default 'new';
+
+create index if not exists feedbacks_status_created_at_idx
+  on public.feedbacks(status, created_at desc);
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'feedbacks_status_check'
+      and conrelid = 'public.feedbacks'::regclass
+  ) then
+    alter table public.feedbacks
+      add constraint feedbacks_status_check
+      check (status in ('new', 'reviewing', 'resolved', 'deferred'));
+  end if;
+end;
+$$;
+
 -- updated_at 자동 갱신 함수
 create or replace function public.handle_updated_at()
 returns trigger language plpgsql as $$
@@ -194,6 +233,11 @@ create trigger on_video_progress_updated
 drop trigger if exists on_profiles_updated on public.profiles;
 create trigger on_profiles_updated
   before update on public.profiles
+  for each row execute function public.handle_updated_at();
+
+drop trigger if exists on_feedbacks_updated on public.feedbacks;
+create trigger on_feedbacks_updated
+  before update on public.feedbacks
   for each row execute function public.handle_updated_at();
 
 -- 신규 사용자 가입 시 profiles 자동 생성
@@ -246,6 +290,7 @@ alter table public.videos enable row level security;
 alter table public.watch_history enable row level security;
 alter table public.video_progress enable row level security;
 alter table public.profiles enable row level security;
+alter table public.feedbacks enable row level security;
 
 -- main_categories: 모든 사용자 읽기, 관리자만 쓰기
 drop policy if exists "main_categories_read" on public.main_categories;
@@ -306,42 +351,47 @@ drop policy if exists "profiles_admin_read" on public.profiles;
 create policy "profiles_admin_read" on public.profiles
   for select using (public.is_admin());
 
+-- feedbacks: 서버 API로 수집, 관리자만 조회/처리
+drop policy if exists "feedbacks_admin_all" on public.feedbacks;
+create policy "feedbacks_admin_all" on public.feedbacks
+  for all using (public.is_admin()) with check (public.is_admin());
+
 -- 초기 데이터: 대카테고리
 insert into public.main_categories (name, slug, description, sort_order) values
-  ('언어', 'language', '외국어 학습 강의', 1),
-  ('AI', 'ai', '인공지능 관련 강의', 2)
+  ('AI 개발', 'ai-development', 'AI 도구로 웹/앱/서비스를 만드는 학습', 1),
+  ('AI 활용', 'ai-usage', '업무와 콘텐츠 제작에 AI를 활용하는 학습', 2)
 on conflict (slug) do nothing;
 
--- 초기 데이터: 소카테고리 - 언어
+-- 초기 데이터: 소카테고리 - AI 개발
 insert into public.sub_categories (main_category_id, name, slug, sort_order)
-select id, '영어', 'english', 1 from public.main_categories where slug = 'language'
+select id, 'Git/GitHub', 'git-github', 1 from public.main_categories where slug = 'ai-development'
 on conflict (main_category_id, slug) do nothing;
 
 insert into public.sub_categories (main_category_id, name, slug, sort_order)
-select id, '일본어', 'japanese', 2 from public.main_categories where slug = 'language'
+select id, 'Claude Code', 'claude-code', 2 from public.main_categories where slug = 'ai-development'
 on conflict (main_category_id, slug) do nothing;
 
 insert into public.sub_categories (main_category_id, name, slug, sort_order)
-select id, '중국어', 'chinese', 3 from public.main_categories where slug = 'language'
-on conflict (main_category_id, slug) do nothing;
-
--- 초기 데이터: 소카테고리 - AI
-insert into public.sub_categories (main_category_id, name, slug, sort_order)
-select id, 'AI기초', 'ai-basics', 1 from public.main_categories where slug = 'ai'
+select id, 'Codex', 'codex', 3 from public.main_categories where slug = 'ai-development'
 on conflict (main_category_id, slug) do nothing;
 
 insert into public.sub_categories (main_category_id, name, slug, sort_order)
-select id, '프롬프트엔지니어링', 'prompt-engineering', 2 from public.main_categories where slug = 'ai'
+select id, 'Vibe Coding', 'vibe-coding', 4 from public.main_categories where slug = 'ai-development'
 on conflict (main_category_id, slug) do nothing;
 
 insert into public.sub_categories (main_category_id, name, slug, sort_order)
-select id, 'AI툴활용', 'ai-tools', 3 from public.main_categories where slug = 'ai'
+select id, 'Vibe Design', 'vibe-design', 5 from public.main_categories where slug = 'ai-development'
+on conflict (main_category_id, slug) do nothing;
+
+-- 초기 데이터: 소카테고리 - AI 활용
+insert into public.sub_categories (main_category_id, name, slug, sort_order)
+select id, '업무 자동화', 'workflow-automation', 1 from public.main_categories where slug = 'ai-usage'
 on conflict (main_category_id, slug) do nothing;
 
 insert into public.sub_categories (main_category_id, name, slug, sort_order)
-select id, '머신러닝·딥러닝', 'ml-dl', 4 from public.main_categories where slug = 'ai'
+select id, '이미지/영상 생성', 'image-video-generation', 2 from public.main_categories where slug = 'ai-usage'
 on conflict (main_category_id, slug) do nothing;
 
 insert into public.sub_categories (main_category_id, name, slug, sort_order)
-select id, 'AI트렌드', 'ai-trends', 5 from public.main_categories where slug = 'ai'
+select id, '마케팅 콘텐츠', 'marketing-content', 3 from public.main_categories where slug = 'ai-usage'
 on conflict (main_category_id, slug) do nothing;
