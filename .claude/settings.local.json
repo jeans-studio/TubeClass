@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(npm --version)",
-      "Bash(npx create-next-app@latest *)"
+      "Bash(npx create-next-app@latest *)",
+      "Bash(cp -r /Users/user/tubeclass/. /Users/user/TubeClass/)",
+      "Bash(rm -rf /Users/user/tubeclass)",
+      "Bash(npm install *)",
+      "Bash(npx shadcn@latest *)",
+      "Bash(mkdir -p \"/Users/user/TubeClass/src/app/\\(main\\)/learn/[mainSlug]/[subSlug]\")",
+      "Bash(mkdir -p \"/Users/user/TubeClass/src/app/\\(main\\)/learn/[mainSlug]/[subSlug]/[videoId]\")",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "WebFetch(domain:21st.dev)"
     ]
   }
 }
