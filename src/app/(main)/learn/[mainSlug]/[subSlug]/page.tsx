@@ -1,93 +1,114 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { PlayCircle, ChevronRight } from 'lucide-react'
-import type { Video } from '@/types'
+import { Card, CardContent } from '@/components/ui/card'
+import { ChevronRight, ListVideo, PlayCircle } from 'lucide-react'
+import type { Playlist, Video } from '@/types'
 
 interface PageProps {
   params: Promise<{ mainSlug: string; subSlug: string }>
 }
 
+type PlaylistWithVideos = Playlist & {
+  videos?: Video[]
+}
+
+const difficultyLabels: Record<Playlist['difficulty'], string> = {
+  beginner: '초급',
+  intermediate: '중급',
+  advanced: '고급',
+}
+
 export default async function SubCategoryPage({ params }: PageProps) {
   const { mainSlug, subSlug } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabaseAdmin = createAdminClient()
 
-  const { data: subCategory } = await supabase
+  const { data: subCategory } = await supabaseAdmin
     .from('sub_categories')
-    .select('*, main_category:main_categories(id, name, slug), videos(*, sub_category_id)')
+    .select('*, main_category:main_categories!inner(id, name, slug), playlists(*, videos(*, playlist_id))')
     .eq('slug', subSlug)
     .eq('main_category.slug', mainSlug)
-    .order('sort_order', { referencedTable: 'videos' })
+    .order('sort_order', { referencedTable: 'playlists' })
+    .order('sort_order', { referencedTable: 'playlists.videos' })
     .single()
 
   if (!subCategory) notFound()
 
-  const { data: progress } = await supabase
-    .from('video_progress')
-    .select('*')
-    .eq('user_id', user!.id)
+  const playlists: PlaylistWithVideos[] = ((subCategory.playlists ?? []) as PlaylistWithVideos[])
+    .filter((playlist) => playlist.is_published)
+    .map((playlist) => ({
+      ...playlist,
+      videos: (playlist.videos ?? []).filter((video) => video.is_published),
+    }))
 
-  const videos: Video[] = subCategory.videos ?? []
+  const totalVideos = playlists.reduce((sum, playlist) => sum + (playlist.videos?.length ?? 0), 0)
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {/* 브레드크럼 */}
-      <nav className="flex items-center gap-1.5 text-sm text-muted-foreground mb-4">
-        <Link href="/dashboard" className="hover:text-slate-700">홈</Link>
-        <ChevronRight className="w-3.5 h-3.5" />
-        <span>{subCategory.main_category?.name}</span>
-        <ChevronRight className="w-3.5 h-3.5" />
-        <span className="text-foreground font-medium">{subCategory.name}</span>
+    <div className="w-full p-4 md:p-6">
+      <nav className="mb-4 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-sm text-muted-foreground">
+        <Link href="/dashboard" className="shrink-0 hover:text-foreground">홈</Link>
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+        <Link href={`/learn/${mainSlug}`} className="block max-w-[28vw] shrink-0 truncate hover:text-foreground sm:max-w-32 md:max-w-48">
+          {subCategory.main_category?.name}
+        </Link>
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+        <span className="block min-w-0 flex-1 truncate font-medium text-foreground">{subCategory.name}</span>
       </nav>
 
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-foreground">{subCategory.name}</h1>
-        <span className="text-sm text-muted-foreground">{videos.length}개 강의</span>
+      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="truncate text-xl font-semibold text-foreground">{subCategory.name}</h1>
+          {subCategory.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{subCategory.description}</p>}
+        </div>
+        <span className="shrink-0 text-sm text-muted-foreground">{playlists.length}개 재생목록 · {totalVideos}개 강의</span>
       </div>
 
-      {videos.length === 0 ? (
-        <div className="text-center py-20 text-muted-foreground">
-          <PlayCircle className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>아직 등록된 강의가 없습니다</p>
+      {playlists.length === 0 ? (
+        <div className="py-20 text-center text-muted-foreground">
+          <ListVideo className="mx-auto mb-3 h-12 w-12 opacity-30" />
+          <p>아직 등록된 재생목록이 없습니다</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {videos.map((video, idx) => {
-            const prog = progress?.find((p) => p.video_id === video.id)
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {playlists.map((playlist) => {
+            const videos = playlist.videos ?? []
+            const thumbnail = playlist.thumbnail_url || videos.find((video) => video.thumbnail_url)?.thumbnail_url
+            const firstVideo = videos[0]
+            const href = firstVideo
+              ? `/learn/${mainSlug}/${subSlug}/${playlist.slug}/${firstVideo.id}`
+              : `/learn/${mainSlug}/${subSlug}/${playlist.slug}`
+
             return (
-              <Link key={video.id} href={`/learn/${mainSlug}/${subSlug}/${video.id}`}>
-                <Card className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer group">
-                  <div className="relative aspect-video bg-muted">
-                    {video.thumbnail_url ? (
+              <Link key={playlist.id} href={href} className="min-w-0">
+                <Card className="group h-full overflow-hidden transition-shadow hover:shadow-sm">
+                  <div className="relative aspect-video w-full overflow-hidden bg-muted">
+                    {thumbnail ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover" />
+                      <img src={thumbnail} alt={playlist.name} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                        <PlayCircle className="w-10 h-10" />
+                      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                        <PlayCircle className="h-10 w-10" />
                       </div>
                     )}
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors">
-                      <PlayCircle className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
-                    </div>
-                    <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">{idx + 1}</span>
-                    </div>
-                    {prog && (
-                      <div className="absolute top-2 right-2">
-                        <Badge variant={prog.status === 'completed' ? 'default' : 'secondary'} className="text-xs py-0">
-                          {prog.status === 'completed' ? '완료' : '학습중'}
-                        </Badge>
-                      </div>
-                    )}
+                    <div className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/20" />
+                    <Badge variant="secondary" className="absolute left-2 top-2 text-xs">
+                      {videos.length}개 강의
+                    </Badge>
+                    <Badge variant="outline" className="absolute right-2 top-2 bg-background/90 text-xs">
+                      {difficultyLabels[playlist.difficulty ?? 'beginner']}
+                    </Badge>
                   </div>
-                  <CardContent className="pt-3 pb-3">
-                    <p className="text-sm font-medium text-foreground line-clamp-2">{video.title}</p>
-                    {video.duration && (
-                      <p className="text-xs text-muted-foreground mt-1">{video.duration}</p>
-                    )}
+                  <CardContent className="space-y-2 px-3 py-3">
+                    <div className="flex items-start gap-2">
+                      <ListVideo className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 break-words text-sm font-semibold text-foreground">{playlist.name}</p>
+                        {playlist.description && (
+                          <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-muted-foreground">{playlist.description}</p>
+                        )}
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </Link>

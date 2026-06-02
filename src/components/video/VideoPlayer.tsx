@@ -62,7 +62,7 @@ export function VideoPlayer({ videoId, youtubeId, title, initialStatus, userId }
       {/* 학습 상태 버튼 — 로그인 시에만 표시 */}
       {userId ? (
         <div className="flex items-center gap-3">
-          <span className="text-sm text-slate-500">학습 상태:</span>
+          <span className="text-sm text-muted-foreground">학습 상태:</span>
           {status && (
             <Badge variant={status === 'completed' ? 'default' : 'secondary'}>
               {status === 'completed' ? '완료' : '학습중'}
@@ -92,9 +92,9 @@ export function VideoPlayer({ videoId, youtubeId, title, initialStatus, userId }
           </div>
         </div>
       ) : (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-muted-foreground">
           학습 진도를 저장하려면{' '}
-          <span className="text-red-500 font-medium">Google로 로그인</span>하세요
+          <span className="font-medium text-foreground">Google로 로그인</span>하세요
         </p>
       )}
     </div>

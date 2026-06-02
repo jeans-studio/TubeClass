@@ -10,19 +10,20 @@ export default async function HistoryPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   const [{ data: history }, { data: progress }] = await Promise.all([
-    supabase
-      .from('watch_history')
-      .select('*, video:videos(*, sub_category:sub_categories(name, slug, main_category:main_categories(name, slug)))')
-      .eq('user_id', user!.id)
-      .order('watched_at', { ascending: false }),
-    supabase
-      .from('video_progress')
-      .select('*')
-      .eq('user_id', user!.id),
+    user
+      ? supabase
+          .from('watch_history')
+          .select('*, video:videos(*, playlist:playlists(slug), sub_category:sub_categories(name, slug, main_category:main_categories(name, slug)))')
+          .eq('user_id', user.id)
+          .order('watched_at', { ascending: false })
+      : Promise.resolve({ data: null }),
+    user
+      ? supabase.from('video_progress').select('*').eq('user_id', user.id)
+      : Promise.resolve({ data: null }),
   ])
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="w-full p-4 md:p-6">
       <div className="flex items-center gap-2 mb-6">
         <History className="w-5 h-5 text-muted-foreground" />
         <h1 className="text-xl font-semibold text-foreground">최근 본 영상</h1>
@@ -35,17 +36,21 @@ export default async function HistoryPage() {
           <p>아직 본 영상이 없습니다</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {history.map((item) => {
-            const video = item.video as Video & { sub_category: { name: string; slug: string; main_category: { name: string; slug: string } } }
+            const video = item.video as Video & {
+              playlist: { slug: string } | null
+              sub_category: { name: string; slug: string; main_category: { name: string; slug: string } }
+            }
             const prog = progress?.find((p) => p.video_id === video.id)
+            if (!video.playlist?.slug) return null
             return (
               <Link
                 key={item.id}
-                href={`/learn/${video.sub_category.main_category.slug}/${video.sub_category.slug}/${video.id}`}
+                href={`/learn/${video.sub_category.main_category.slug}/${video.sub_category.slug}/${video.playlist.slug}/${video.id}`}
               >
                 <Card className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer group">
-                  <div className="relative aspect-video bg-muted">
+                  <div className="relative aspect-video w-full overflow-hidden bg-muted">
                     {video.thumbnail_url && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover" />

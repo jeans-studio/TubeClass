@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import type { MainCategory, SubCategory } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,12 +25,44 @@ function slugify(text: string) {
     .replace(/\s+/g, '-')
 }
 
+async function adminCategoriesRequest(
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  body?: unknown
+) {
+  const response = await fetch('/api/admin/categories', {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const result = await response.json()
+
+  if (!response.ok) {
+    throw new Error(result.error ?? '카테고리 작업에 실패했습니다')
+  }
+
+  return result.categories as MainCategory[]
+}
+
+function reorderById<T extends { id: string }>(items: T[], draggedId: string, targetId: string) {
+  const fromIndex = items.findIndex((item) => item.id === draggedId)
+  const toIndex = items.findIndex((item) => item.id === targetId)
+
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return items
+
+  const nextItems = [...items]
+  const [moved] = nextItems.splice(fromIndex, 1)
+  nextItems.splice(toIndex, 0, moved)
+
+  return nextItems
+}
+
 export function CategoryManager({ initialCategories }: Props) {
   const router = useRouter()
-  const supabase = createClient()
   const [categories, setCategories] = useState(initialCategories)
   const [expanded, setExpanded] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  const [draggingMainId, setDraggingMainId] = useState<string | null>(null)
+  const [draggingSub, setDraggingSub] = useState<{ mainId: string; subId: string } | null>(null)
 
   // 대카테고리 모달
   const [mainModal, setMainModal] = useState<{ open: boolean; editing: MainCategory | null }>({ open: false, editing: null })
@@ -51,36 +82,44 @@ export function CategoryManager({ initialCategories }: Props) {
     setLoading(true)
     const slug = mainForm.slug || slugify(mainForm.name)
 
-    if (mainModal.editing) {
-      const { error } = await supabase
-        .from('main_categories')
-        .update({ name: mainForm.name, slug, description: mainForm.description })
-        .eq('id', mainModal.editing.id)
-      if (error) { toast.error(error.message); setLoading(false); return }
-      toast.success('수정되었습니다')
-    } else {
-      const maxOrder = Math.max(0, ...categories.map((c) => c.sort_order)) + 1
-      const { error } = await supabase
-        .from('main_categories')
-        .insert({ name: mainForm.name, slug, description: mainForm.description, sort_order: maxOrder })
-      if (error) { toast.error(error.message); setLoading(false); return }
-      toast.success('추가되었습니다')
-    }
+    try {
+      const nextCategories = mainModal.editing
+        ? await adminCategoriesRequest('PATCH', {
+            entity: 'main',
+            id: mainModal.editing.id,
+            data: { name: mainForm.name, slug, description: mainForm.description },
+          })
+        : await adminCategoriesRequest('POST', {
+            entity: 'main',
+            data: {
+              name: mainForm.name,
+              slug,
+              description: mainForm.description,
+              sort_order: Math.max(0, ...categories.map((c) => c.sort_order)) + 1,
+            },
+          })
 
-    setMainModal({ open: false, editing: null })
-    setLoading(false)
-    router.refresh()
-    // 클라이언트 갱신
-    const { data } = await supabase.from('main_categories').select('*, sub_categories(id, name, slug, sort_order, description, main_category_id, created_at, updated_at)').order('sort_order').order('sort_order', { referencedTable: 'sub_categories' })
-    if (data) setCategories(data)
+      setCategories(nextCategories)
+      setMainModal({ open: false, editing: null })
+      toast.success(mainModal.editing ? '수정되었습니다' : '추가되었습니다')
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '저장에 실패했습니다')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function deleteMainCategory(id: string) {
     if (!confirm('대카테고리를 삭제하면 하위 소카테고리와 영상도 모두 삭제됩니다. 계속하시겠습니까?')) return
-    const { error } = await supabase.from('main_categories').delete().eq('id', id)
-    if (error) { toast.error(error.message); return }
-    toast.success('삭제되었습니다')
-    setCategories((prev) => prev.filter((c) => c.id !== id))
+    try {
+      const nextCategories = await adminCategoriesRequest('DELETE', { entity: 'main', id })
+      setCategories(nextCategories)
+      toast.success('삭제되었습니다')
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '삭제에 실패했습니다')
+    }
   }
 
   // 소카테고리 저장
@@ -89,36 +128,46 @@ export function CategoryManager({ initialCategories }: Props) {
     setLoading(true)
     const slug = subForm.slug || slugify(subForm.name)
 
-    if (subModal.editing) {
-      const { error } = await supabase
-        .from('sub_categories')
-        .update({ name: subForm.name, slug, description: subForm.description })
-        .eq('id', subModal.editing.id)
-      if (error) { toast.error(error.message); setLoading(false); return }
-      toast.success('수정되었습니다')
-    } else {
+    try {
       const parent = categories.find((c) => c.id === subModal.parentId)
-      const maxOrder = Math.max(0, ...(parent?.sub_categories?.map((s) => s.sort_order) ?? [])) + 1
-      const { error } = await supabase
-        .from('sub_categories')
-        .insert({ name: subForm.name, slug, description: subForm.description, main_category_id: subModal.parentId, sort_order: maxOrder })
-      if (error) { toast.error(error.message); setLoading(false); return }
-      toast.success('추가되었습니다')
-    }
+      const nextCategories = subModal.editing
+        ? await adminCategoriesRequest('PATCH', {
+            entity: 'sub',
+            id: subModal.editing.id,
+            data: { name: subForm.name, slug, description: subForm.description },
+          })
+        : await adminCategoriesRequest('POST', {
+            entity: 'sub',
+            data: {
+              name: subForm.name,
+              slug,
+              description: subForm.description,
+              main_category_id: subModal.parentId,
+              sort_order: Math.max(0, ...(parent?.sub_categories?.map((s) => s.sort_order) ?? [])) + 1,
+            },
+          })
 
-    setSubModal({ open: false, editing: null, parentId: '' })
-    setLoading(false)
-    const { data } = await supabase.from('main_categories').select('*, sub_categories(id, name, slug, sort_order, description, main_category_id, created_at, updated_at)').order('sort_order').order('sort_order', { referencedTable: 'sub_categories' })
-    if (data) setCategories(data)
+      setCategories(nextCategories)
+      setSubModal({ open: false, editing: null, parentId: '' })
+      toast.success(subModal.editing ? '수정되었습니다' : '추가되었습니다')
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '저장에 실패했습니다')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function deleteSubCategory(id: string) {
     if (!confirm('소카테고리를 삭제하면 하위 영상도 모두 삭제됩니다. 계속하시겠습니까?')) return
-    const { error } = await supabase.from('sub_categories').delete().eq('id', id)
-    if (error) { toast.error(error.message); return }
-    toast.success('삭제되었습니다')
-    const { data } = await supabase.from('main_categories').select('*, sub_categories(id, name, slug, sort_order, description, main_category_id, created_at, updated_at)').order('sort_order').order('sort_order', { referencedTable: 'sub_categories' })
-    if (data) setCategories(data)
+    try {
+      const nextCategories = await adminCategoriesRequest('DELETE', { entity: 'sub', id })
+      setCategories(nextCategories)
+      toast.success('삭제되었습니다')
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '삭제에 실패했습니다')
+    }
   }
 
   async function moveMain(id: string, direction: 'up' | 'down') {
@@ -126,14 +175,22 @@ export function CategoryManager({ initialCategories }: Props) {
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1
     if (swapIdx < 0 || swapIdx >= categories.length) return
     const a = categories[idx], b = categories[swapIdx]
-    await Promise.all([
-      supabase.from('main_categories').update({ sort_order: b.sort_order }).eq('id', a.id),
-      supabase.from('main_categories').update({ sort_order: a.sort_order }).eq('id', b.id),
-    ])
-    const newCats = [...categories]
-    newCats[idx] = { ...a, sort_order: b.sort_order }
-    newCats[swapIdx] = { ...b, sort_order: a.sort_order }
-    setCategories(newCats.sort((x, y) => x.sort_order - y.sort_order))
+    try {
+      await adminCategoriesRequest('PATCH', {
+        entity: 'main',
+        id: a.id,
+        data: { sort_order: b.sort_order },
+      })
+      const nextCategories = await adminCategoriesRequest('PATCH', {
+        entity: 'main',
+        id: b.id,
+        data: { sort_order: a.sort_order },
+      })
+      setCategories(nextCategories)
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '순서 변경에 실패했습니다')
+    }
   }
 
   async function moveSub(mainId: string, subId: string, direction: 'up' | 'down') {
@@ -143,20 +200,88 @@ export function CategoryManager({ initialCategories }: Props) {
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1
     if (swapIdx < 0 || swapIdx >= subs.length) return
     const a = subs[idx], b = subs[swapIdx]
-    await Promise.all([
-      supabase.from('sub_categories').update({ sort_order: b.sort_order }).eq('id', a.id),
-      supabase.from('sub_categories').update({ sort_order: a.sort_order }).eq('id', b.id),
-    ])
-    const { data } = await supabase.from('main_categories').select('*, sub_categories(id, name, slug, sort_order, description, main_category_id, created_at, updated_at)').order('sort_order').order('sort_order', { referencedTable: 'sub_categories' })
-    if (data) setCategories(data)
+    try {
+      await adminCategoriesRequest('PATCH', {
+        entity: 'sub',
+        id: a.id,
+        data: { sort_order: b.sort_order },
+      })
+      const nextCategories = await adminCategoriesRequest('PATCH', {
+        entity: 'sub',
+        id: b.id,
+        data: { sort_order: a.sort_order },
+      })
+      setCategories(nextCategories)
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '순서 변경에 실패했습니다')
+    }
+  }
+
+  async function persistMainOrder(nextCategories: MainCategory[]) {
+    const normalized = nextCategories.map((category, index) => ({
+      ...category,
+      sort_order: index + 1,
+    }))
+
+    setCategories(normalized)
+    try {
+      const savedCategories = await adminCategoriesRequest('PATCH', {
+        entity: 'main',
+        items: normalized.map((category) => ({ id: category.id, sort_order: category.sort_order })),
+      })
+      setCategories(savedCategories)
+      router.refresh()
+    } catch (error) {
+      setCategories(categories)
+      toast.error(error instanceof Error ? error.message : '순서 변경에 실패했습니다')
+    }
+  }
+
+  async function persistSubOrder(mainId: string, nextSubs: SubCategory[]) {
+    const normalizedSubs = nextSubs.map((sub, index) => ({
+      ...sub,
+      sort_order: index + 1,
+    }))
+    const previousCategories = categories
+    const optimisticCategories = categories.map((category) =>
+      category.id === mainId ? { ...category, sub_categories: normalizedSubs } : category
+    )
+
+    setCategories(optimisticCategories)
+    try {
+      const savedCategories = await adminCategoriesRequest('PATCH', {
+        entity: 'sub',
+        items: normalizedSubs.map((sub) => ({ id: sub.id, sort_order: sub.sort_order })),
+      })
+      setCategories(savedCategories)
+      router.refresh()
+    } catch (error) {
+      setCategories(previousCategories)
+      toast.error(error instanceof Error ? error.message : '순서 변경에 실패했습니다')
+    }
+  }
+
+  function handleMainDrop(targetId: string) {
+    if (!draggingMainId || draggingMainId === targetId) return
+    void persistMainOrder(reorderById(categories, draggingMainId, targetId))
+    setDraggingMainId(null)
+  }
+
+  function handleSubDrop(mainId: string, targetSubId: string) {
+    if (!draggingSub || draggingSub.mainId !== mainId || draggingSub.subId === targetSubId) return
+    const main = categories.find((category) => category.id === mainId)
+    const nextSubs = reorderById(main?.sub_categories ?? [], draggingSub.subId, targetSubId)
+    void persistSubOrder(mainId, nextSubs)
+    setDraggingSub(null)
   }
 
   return (
-    <div className="max-w-3xl">
+    <div className="w-full">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">카테고리 관리</h1>
-          <p className="text-sm text-slate-500 mt-1">대카테고리와 소카테고리를 관리합니다</p>
+          <h1 className="text-2xl font-bold text-foreground">카테고리 관리</h1>
+          <p className="text-sm text-muted-foreground mt-1">대카테고리와 소카테고리를 관리합니다</p>
         </div>
         <Button onClick={() => { setMainForm({ name: '', slug: '', description: '' }); setMainModal({ open: true, editing: null }) }} className="gap-2">
           <Plus className="w-4 h-4" />
@@ -166,15 +291,30 @@ export function CategoryManager({ initialCategories }: Props) {
 
       <div className="space-y-4">
         {categories.map((main, mainIdx) => (
-          <Card key={main.id}>
+          <Card
+            key={main.id}
+            className={`pt-4 transition-colors ${draggingMainId === main.id ? 'opacity-60' : ''}`}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => handleMainDrop(main.id)}
+          >
             <CardHeader className="pb-2">
               <div className="flex items-center gap-2">
-                <GripVertical className="w-4 h-4 text-slate-300" />
+                <span
+                  draggable
+                  className="cursor-grab active:cursor-grabbing"
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'move'
+                    setDraggingMainId(main.id)
+                  }}
+                  onDragEnd={() => setDraggingMainId(null)}
+                >
+                  <GripVertical className="h-4 w-4 text-muted-foreground" />
+                </span>
                 <button onClick={() => toggleExpand(main.id)} className="flex items-center gap-1.5 flex-1 text-left">
-                  {expanded.includes(main.id) ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  {expanded.includes(main.id) ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
                   <CardTitle className="text-base">{main.name}</CardTitle>
                   <Badge variant="secondary" className="text-xs">{main.slug}</Badge>
-                  <span className="text-xs text-slate-400 ml-1">({main.sub_categories?.length ?? 0}개 소카테고리)</span>
+                  <span className="text-xs text-muted-foreground ml-1">({main.sub_categories?.length ?? 0}개 소카테고리)</span>
                 </button>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveMain(main.id, 'up')} disabled={mainIdx === 0}>↑</Button>
@@ -193,9 +333,24 @@ export function CategoryManager({ initialCategories }: Props) {
               <CardContent className="pt-0">
                 <div className="ml-8 space-y-2">
                   {main.sub_categories?.map((sub, subIdx) => (
-                    <div key={sub.id} className="flex items-center gap-2 p-2 rounded-lg bg-slate-50">
-                      <GripVertical className="w-3.5 h-3.5 text-slate-300" />
-                      <span className="flex-1 text-sm text-slate-700">{sub.name}</span>
+                    <div
+                      key={sub.id}
+                      className={`flex items-center gap-2 rounded-lg bg-muted/50 p-2 transition-colors ${draggingSub?.subId === sub.id ? 'opacity-60' : ''}`}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={() => handleSubDrop(main.id, sub.id)}
+                    >
+                      <span
+                        draggable
+                        className="cursor-grab active:cursor-grabbing"
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move'
+                          setDraggingSub({ mainId: main.id, subId: sub.id })
+                        }}
+                        onDragEnd={() => setDraggingSub(null)}
+                      >
+                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                      </span>
+                      <span className="flex-1 text-sm text-foreground">{sub.name}</span>
                       <Badge variant="outline" className="text-xs">{sub.slug}</Badge>
                       <div className="flex items-center gap-1">
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveSub(main.id, sub.id, 'up')} disabled={subIdx === 0}>↑</Button>
@@ -212,7 +367,7 @@ export function CategoryManager({ initialCategories }: Props) {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="w-full mt-2 border-dashed border-slate-300 text-slate-500 hover:text-slate-700"
+                    className="w-full mt-2 border-dashed border-slate-300 text-muted-foreground hover:text-foreground"
                     onClick={() => { setSubForm({ name: '', slug: '', description: '' }); setSubModal({ open: true, editing: null, parentId: main.id }) }}
                   >
                     <Plus className="w-3.5 h-3.5 mr-1.5" />

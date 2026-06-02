@@ -6,16 +6,18 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { LogOut, User } from 'lucide-react'
+import type { User as SupabaseUser } from '@supabase/supabase-js'
 import type { Profile } from '@/types'
 import { toast } from 'sonner'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
 interface HeaderProps {
+  user: SupabaseUser | null
   profile: Profile | null
   children?: React.ReactNode
 }
 
-export function Header({ profile, children }: HeaderProps) {
+export function Header({ user, profile, children }: HeaderProps) {
   const router = useRouter()
 
   async function handleGoogleLogin() {
@@ -33,7 +35,7 @@ export function Header({ profile, children }: HeaderProps) {
     router.refresh()
   }
 
-  if (!profile) {
+  if (!user) {
     return (
       <header className="h-14 border-b bg-background flex items-center gap-2 px-4 sticky top-0 z-10">
         {children}
@@ -52,9 +54,14 @@ export function Header({ profile, children }: HeaderProps) {
     )
   }
 
-  const initials = profile.full_name
-    ? profile.full_name.slice(0, 2).toUpperCase()
-    : profile.email?.slice(0, 2).toUpperCase() ?? '??'
+  const displayName =
+    profile?.full_name ??
+    user.user_metadata?.full_name ??
+    user.email ??
+    '사용자'
+  const email = profile?.email ?? user.email ?? ''
+  const avatarUrl = profile?.avatar_url ?? user.user_metadata?.avatar_url ?? null
+  const initials = displayName.slice(0, 2).toUpperCase()
 
   return (
     <header className="h-14 border-b bg-background flex items-center gap-2 px-4 sticky top-0 z-10">
@@ -64,19 +71,19 @@ export function Header({ profile, children }: HeaderProps) {
       <DropdownMenu>
         <DropdownMenuTrigger className="flex items-center gap-2 hover:opacity-80 transition-opacity outline-none">
           <Avatar className="w-8 h-8">
-            {profile.avatar_url && <AvatarImage src={profile.avatar_url} alt={profile.full_name ?? ''} />}
+            {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
             <AvatarFallback className="bg-secondary text-secondary-foreground text-xs font-semibold">
               {initials}
             </AvatarFallback>
           </Avatar>
           <span className="text-sm font-medium text-foreground hidden sm:block">
-            {profile.full_name ?? profile.email}
+            {displayName}
           </span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuItem className="text-muted-foreground text-xs" disabled>
             <User className="w-3.5 h-3.5 mr-2" />
-            {profile.email}
+            {email}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout} className="text-destructive">

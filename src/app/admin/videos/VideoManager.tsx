@@ -1,202 +1,769 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { extractYouTubeId, getYouTubeThumbnail } from '@/lib/youtube'
-import type { Video, MainCategory } from '@/types'
+import { useMemo, useState } from 'react'
+import { extractYouTubeId } from '@/lib/youtube'
+import type { MainCategory, Playlist, Video } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, Loader2, Search, Eye, EyeOff } from 'lucide-react'
+import { Download, Eye, EyeOff, GripVertical, ListPlus, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
+type VideoWithRelations = Video & {
+  playlist?: { id: string; name: string; slug: string; sub_category_id: string; difficulty?: VideoDifficulty | null } | null
+  sub_category: { id: string; name: string; slug: string; main_category: { id: string; name: string; slug: string } }
+}
+
+type PlaylistWithCategory = Playlist & {
+  sub_category: { id: string; name: string; slug: string; main_category: { id: string; name: string; slug: string } }
+}
+
 interface Props {
-  initialVideos: (Video & { sub_category: { id: string; name: string; slug: string; main_category: { id: string; name: string; slug: string } } })[]
+  initialVideos: VideoWithRelations[]
+  initialPlaylists: PlaylistWithCategory[]
   categories: (MainCategory & { sub_categories: { id: string; name: string; slug: string }[] })[]
 }
 
-const emptyForm = { title: '', description: '', youtube_url: '', sub_category_id: '', duration: '' }
+const emptyVideoForm = {
+  title: '',
+  description: '',
+  youtube_url: '',
+  playlist_id: '',
+  is_published: true,
+  duration: '',
+  youtube_published_at: null as string | null,
+  youtube_channel_name: '',
+}
 
-export function VideoManager({ initialVideos, categories }: Props) {
-  const supabase = createClient()
+const emptyPlaylistForm = {
+  name: '',
+  slug: '',
+  description: '',
+  thumbnail_url: '',
+  sub_category_id: '',
+  difficulty: 'beginner' as VideoDifficulty,
+  is_published: true,
+}
+
+interface YouTubeMetadata {
+  youtube_id: string
+  youtube_url: string
+  title: string
+  description: string
+  duration: string
+  youtube_published_at: string | null
+  youtube_channel_name: string
+  thumbnail_url: string
+}
+
+type VideoDifficulty = Video['difficulty']
+type VideoSort = 'sort_order' | 'created_desc' | 'title_asc' | 'youtube_published_desc'
+
+const difficultyLabels: Record<VideoDifficulty, string> = {
+  beginner: '초급',
+  intermediate: '중급',
+  advanced: '고급',
+}
+
+const sortLabels: Record<VideoSort, string> = {
+  sort_order: '재생목록 순서',
+  created_desc: '등록순',
+  title_asc: '이름순',
+  youtube_published_desc: '유튜브 원본 날짜순',
+}
+
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function reorderById<T extends { id: string }>(items: T[], draggedId: string, targetId: string) {
+  const fromIndex = items.findIndex((item) => item.id === draggedId)
+  const toIndex = items.findIndex((item) => item.id === targetId)
+
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return items
+
+  const nextItems = [...items]
+  const [moved] = nextItems.splice(fromIndex, 1)
+  nextItems.splice(toIndex, 0, moved)
+
+  return nextItems
+}
+
+async function adminVideosRequest(
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  body?: unknown
+) {
+  const response = await fetch('/api/admin/videos', {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const result = await response.json()
+
+  if (!response.ok) {
+    throw new Error(result.error ?? '영상 작업에 실패했습니다')
+  }
+
+  return result.videos as VideoWithRelations[]
+}
+
+async function adminPlaylistsRequest(
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  body?: unknown
+) {
+  const response = await fetch('/api/admin/playlists', {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const result = await response.json()
+
+  if (!response.ok) {
+    throw new Error(result.error ?? '재생목록 작업에 실패했습니다')
+  }
+
+  return result.playlists as PlaylistWithCategory[]
+}
+
+async function fetchYouTubeMetadata(url: string) {
+  const response = await fetch(`/api/admin/youtube-metadata?url=${encodeURIComponent(url)}`)
+  const result = await response.json()
+
+  if (!response.ok) {
+    throw new Error(result.error ?? 'YouTube 메타데이터를 가져오지 못했습니다')
+  }
+
+  return result as YouTubeMetadata
+}
+
+async function importYouTubePlaylist(playlistId: string, youtubePlaylistUrl: string) {
+  const response = await fetch('/api/admin/youtube-playlist-import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      playlist_id: playlistId,
+      youtube_playlist_url: youtubePlaylistUrl,
+    }),
+  })
+  const result = await response.json()
+
+  if (!response.ok) {
+    throw new Error(result.error ?? 'YouTube 재생목록 가져오기에 실패했습니다')
+  }
+
+  return result as {
+    imported: number
+    skipped: number
+    videos: VideoWithRelations[]
+    playlists: PlaylistWithCategory[]
+  }
+}
+
+export function VideoManager({ initialVideos, initialPlaylists, categories }: Props) {
   const [videos, setVideos] = useState(initialVideos)
+  const [playlists, setPlaylists] = useState(initialPlaylists)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [filterMainId, setFilterMainId] = useState('all')
   const [filterSubId, setFilterSubId] = useState('all')
-
-  const [modal, setModal] = useState<{ open: boolean; editing: Video | null }>({ open: false, editing: null })
-  const [form, setForm] = useState(emptyForm)
+  const [filterPlaylistId, setFilterPlaylistId] = useState('all')
+  const [sortBy, setSortBy] = useState<VideoSort>('sort_order')
+  const [videoModal, setVideoModal] = useState<{ open: boolean; editing: VideoWithRelations | null }>({ open: false, editing: null })
+  const [playlistModal, setPlaylistModal] = useState<{ open: boolean; editing: PlaylistWithCategory | null }>({ open: false, editing: null })
+  const [playlistImportModal, setPlaylistImportModal] = useState<{ open: boolean; playlist: PlaylistWithCategory | null }>({ open: false, playlist: null })
+  const [videoForm, setVideoForm] = useState(emptyVideoForm)
+  const [playlistForm, setPlaylistForm] = useState(emptyPlaylistForm)
+  const [youtubePlaylistUrl, setYoutubePlaylistUrl] = useState('')
   const [urlLoading, setUrlLoading] = useState(false)
+  const [draggingPlaylistId, setDraggingPlaylistId] = useState<string | null>(null)
+  const [draggingVideoId, setDraggingVideoId] = useState<string | null>(null)
 
   const allSubs = useMemo(() =>
-    categories.flatMap((m) =>
-      (m.sub_categories ?? []).map((s) => ({ ...s, mainName: m.name }))
+    categories.flatMap((main) =>
+      (main.sub_categories ?? []).map((sub) => ({ ...sub, mainId: main.id, mainName: main.name }))
     ), [categories])
 
-  const filtered = useMemo(() => {
-    return videos.filter((v) => {
-      const matchSearch = !search || v.title.toLowerCase().includes(search.toLowerCase())
-      const matchSub = filterSubId === 'all' || v.sub_category_id === filterSubId
-      return matchSearch && matchSub
+  const visibleSubs = useMemo(() => {
+    if (filterMainId === 'all') return allSubs
+    return allSubs.filter((sub) => sub.mainId === filterMainId)
+  }, [allSubs, filterMainId])
+
+  const visiblePlaylists = useMemo(() => {
+    return playlists.filter((playlist) => {
+      const matchMain = filterMainId === 'all' || playlist.sub_category?.main_category?.id === filterMainId
+      const matchSub = filterSubId === 'all' || playlist.sub_category_id === filterSubId
+      return matchMain && matchSub
     })
-  }, [videos, search, filterSubId])
+  }, [playlists, filterMainId, filterSubId])
+
+  const selectedMainLabel = categories.find((main) => main.id === filterMainId)?.name
+  const selectedFilterSubLabel = allSubs.find((sub) => sub.id === filterSubId)
+  const selectedFilterPlaylist = playlists.find((playlist) => playlist.id === filterPlaylistId)
+  const selectedVideoPlaylist = playlists.find((playlist) => playlist.id === videoForm.playlist_id)
+  const selectedPlaylistSubLabel = allSubs.find((sub) => sub.id === playlistForm.sub_category_id)
+
+  const filtered = useMemo(() => {
+    const result = videos.filter((video) => {
+      const matchSearch = !search || video.title.toLowerCase().includes(search.toLowerCase())
+      const matchMain = filterMainId === 'all' || video.sub_category?.main_category?.id === filterMainId
+      const matchSub = filterSubId === 'all' || video.sub_category_id === filterSubId
+      const matchPlaylist = filterPlaylistId === 'all' || video.playlist_id === filterPlaylistId
+      return matchSearch && matchMain && matchSub && matchPlaylist
+    })
+
+    return [...result].sort((a, b) => {
+      if (sortBy === 'title_asc') return a.title.localeCompare(b.title, 'ko')
+
+      if (sortBy === 'youtube_published_desc') {
+        const aTime = a.youtube_published_at ? new Date(a.youtube_published_at).getTime() : 0
+        const bTime = b.youtube_published_at ? new Date(b.youtube_published_at).getTime() : 0
+        return bTime - aTime
+      }
+
+      if (sortBy === 'created_desc') {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      }
+
+      return a.sort_order - b.sort_order
+    })
+  }, [videos, search, filterMainId, filterSubId, filterPlaylistId, sortBy])
+
+  function openPlaylistCreate() {
+    setPlaylistForm({
+      ...emptyPlaylistForm,
+      sub_category_id: filterSubId === 'all' ? '' : filterSubId,
+    })
+    setPlaylistModal({ open: true, editing: null })
+  }
+
+  function openVideoCreateForPlaylist(playlistId: string) {
+    setVideoForm({
+      ...emptyVideoForm,
+      playlist_id: playlistId,
+    })
+    setVideoModal({ open: true, editing: null })
+  }
 
   async function handleUrlChange(url: string) {
-    setForm((f) => ({ ...f, youtube_url: url }))
+    setVideoForm((form) => ({
+      ...form,
+      youtube_url: url,
+      title: '',
+      description: '',
+      duration: '',
+      youtube_published_at: null,
+      youtube_channel_name: '',
+    }))
     const id = extractYouTubeId(url)
     if (!id) return
+
     setUrlLoading(true)
-    // oEmbed로 제목 자동 추출
     try {
-      const res = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`)
-      if (res.ok) {
-        const data = await res.json()
-        setForm((f) => ({ ...f, title: f.title || data.title }))
+      const metadata = await fetchYouTubeMetadata(url)
+      setVideoForm((form) => {
+        if (form.youtube_url !== url) return form
+        return {
+          ...form,
+          youtube_url: metadata.youtube_url,
+          title: metadata.title,
+          description: metadata.description,
+          duration: metadata.duration,
+          youtube_published_at: metadata.youtube_published_at,
+          youtube_channel_name: metadata.youtube_channel_name,
+        }
+      })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'YouTube 정보를 불러오지 못했습니다')
+    } finally {
+      setUrlLoading(false)
+    }
+  }
+
+  async function savePlaylist() {
+    if (!playlistForm.name.trim()) return toast.error('재생목록 이름을 입력하세요')
+    if (!playlistForm.sub_category_id) return toast.error('소카테고리를 선택하세요')
+
+    setLoading(true)
+    try {
+      const playlistData = {
+        name: playlistForm.name.trim(),
+        slug: playlistForm.slug.trim() || slugify(playlistForm.name),
+        description: playlistForm.description.trim() || null,
+        thumbnail_url: playlistForm.thumbnail_url.trim() || null,
+        sub_category_id: playlistForm.sub_category_id,
+        difficulty: playlistForm.difficulty,
+        is_published: playlistForm.is_published,
       }
-    } catch {}
-    setUrlLoading(false)
+
+      const nextPlaylists = playlistModal.editing
+        ? await adminPlaylistsRequest('PATCH', { id: playlistModal.editing.id, data: playlistData })
+        : await adminPlaylistsRequest('POST', {
+            data: {
+              ...playlistData,
+              sort_order: Math.max(0, ...playlists.filter((playlist) => playlist.sub_category_id === playlistForm.sub_category_id).map((playlist) => playlist.sort_order)) + 1,
+            },
+          })
+
+      setPlaylists(nextPlaylists)
+      setPlaylistModal({ open: false, editing: null })
+      toast.success(playlistModal.editing ? '재생목록을 수정했습니다' : '재생목록을 만들었습니다')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '재생목록 저장에 실패했습니다')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function saveVideo() {
-    if (!form.title.trim()) return toast.error('제목을 입력하세요')
-    if (!form.youtube_url.trim()) return toast.error('YouTube URL을 입력하세요')
-    if (!form.sub_category_id) return toast.error('소카테고리를 선택하세요')
+    if (!videoForm.youtube_url.trim()) return toast.error('YouTube URL을 입력하세요')
+    if (!videoForm.playlist_id) return toast.error('재생목록을 선택하세요')
 
-    const youtube_id = extractYouTubeId(form.youtube_url)
+    const youtube_id = extractYouTubeId(videoForm.youtube_url)
     if (!youtube_id) return toast.error('유효한 YouTube URL이 아닙니다')
 
+    const playlist = playlists.find((item) => item.id === videoForm.playlist_id)
+    if (!playlist) return toast.error('재생목록을 찾을 수 없습니다')
+
     setLoading(true)
-    const thumbnail_url = getYouTubeThumbnail(youtube_id)
+    try {
+      const metadata = videoForm.title && videoForm.youtube_published_at && videoForm.youtube_channel_name
+        ? {
+            youtube_id,
+            youtube_url: videoForm.youtube_url,
+            title: videoForm.title,
+            description: videoForm.description,
+            duration: videoForm.duration,
+            youtube_published_at: videoForm.youtube_published_at,
+            youtube_channel_name: videoForm.youtube_channel_name,
+            thumbnail_url: `https://img.youtube.com/vi/${youtube_id}/hqdefault.jpg`,
+          }
+        : await fetchYouTubeMetadata(videoForm.youtube_url)
 
-    if (modal.editing) {
-      const { error } = await supabase
-        .from('videos')
-        .update({
-          title: form.title,
-          description: form.description,
-          youtube_url: form.youtube_url,
-          youtube_id,
-          thumbnail_url,
-          duration: form.duration,
-          sub_category_id: form.sub_category_id,
-        })
-        .eq('id', modal.editing.id)
-      if (error) { toast.error(error.message); setLoading(false); return }
-      toast.success('수정되었습니다')
-    } else {
-      const maxOrder = Math.max(0, ...videos.filter((v) => v.sub_category_id === form.sub_category_id).map((v) => v.sort_order)) + 1
-      const { error } = await supabase
-        .from('videos')
-        .insert({
-          title: form.title,
-          description: form.description,
-          youtube_url: form.youtube_url,
-          youtube_id,
-          thumbnail_url,
-          duration: form.duration,
-          sub_category_id: form.sub_category_id,
-          sort_order: maxOrder,
-          is_published: true,
-        })
-      if (error) { toast.error(error.message); setLoading(false); return }
-      toast.success('추가되었습니다')
+      const videoData = {
+        title: metadata.title,
+        description: metadata.description,
+        youtube_url: metadata.youtube_url,
+        youtube_id: metadata.youtube_id,
+        thumbnail_url: metadata.thumbnail_url,
+        duration: metadata.duration,
+        youtube_published_at: metadata.youtube_published_at,
+        youtube_channel_name: metadata.youtube_channel_name,
+        playlist_id: videoForm.playlist_id,
+        sub_category_id: playlist.sub_category_id,
+        difficulty: playlist.difficulty ?? 'beginner',
+        is_published: videoForm.is_published,
+      }
+
+      const nextVideos = videoModal.editing
+        ? await adminVideosRequest('PATCH', { id: videoModal.editing.id, data: videoData })
+        : await adminVideosRequest('POST', {
+            data: {
+              ...videoData,
+              sort_order: Math.max(0, ...videos.filter((video) => video.playlist_id === videoForm.playlist_id).map((video) => video.sort_order)) + 1,
+            },
+          })
+
+      setVideos(nextVideos)
+      setVideoModal({ open: false, editing: null })
+      toast.success(videoModal.editing ? '수정되었습니다' : '추가되었습니다')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '저장에 실패했습니다')
+    } finally {
+      setLoading(false)
     }
-
-    setModal({ open: false, editing: null })
-    setLoading(false)
-    const { data } = await supabase
-      .from('videos')
-      .select('*, sub_category:sub_categories(id, name, slug, main_category:main_categories(id, name, slug))')
-      .order('sort_order')
-    if (data) setVideos(data as typeof videos)
   }
 
-  async function togglePublish(video: Video) {
-    const { error } = await supabase
-      .from('videos')
-      .update({ is_published: !video.is_published })
-      .eq('id', video.id)
-    if (error) { toast.error(error.message); return }
-    setVideos((prev) => prev.map((v) => v.id === video.id ? { ...v, is_published: !v.is_published } : v))
-    toast.success(video.is_published ? '비공개로 변경했습니다' : '공개로 변경했습니다')
+  async function togglePlaylistPublish(playlist: PlaylistWithCategory) {
+    try {
+      const nextPlaylists = await adminPlaylistsRequest('PATCH', {
+        id: playlist.id,
+        data: { is_published: !playlist.is_published },
+      })
+      setPlaylists(nextPlaylists)
+      toast.success(playlist.is_published ? '재생목록을 비공개로 변경했습니다' : '재생목록을 공개로 변경했습니다')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '상태 변경에 실패했습니다')
+    }
+  }
+
+  async function toggleVideoPublish(video: Video) {
+    try {
+      const nextVideos = await adminVideosRequest('PATCH', {
+        id: video.id,
+        data: { is_published: !video.is_published },
+      })
+      setVideos(nextVideos)
+      toast.success(video.is_published ? '비공개로 변경했습니다' : '공개로 변경했습니다')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '상태 변경에 실패했습니다')
+    }
+  }
+
+  async function deletePlaylist(id: string) {
+    if (!confirm('재생목록을 삭제하면 안의 영상도 함께 삭제됩니다. 삭제하시겠습니까?')) return
+    try {
+      const nextPlaylists = await adminPlaylistsRequest('DELETE', { id })
+      setPlaylists(nextPlaylists)
+      setVideos(await adminVideosRequest('GET'))
+      if (filterPlaylistId === id) setFilterPlaylistId('all')
+      toast.success('삭제되었습니다')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '삭제에 실패했습니다')
+    }
   }
 
   async function deleteVideo(id: string) {
     if (!confirm('영상을 삭제하시겠습니까?')) return
-    const { error } = await supabase.from('videos').delete().eq('id', id)
-    if (error) { toast.error(error.message); return }
-    toast.success('삭제되었습니다')
-    setVideos((prev) => prev.filter((v) => v.id !== id))
+    try {
+      const nextVideos = await adminVideosRequest('DELETE', { id })
+      setVideos(nextVideos)
+      toast.success('삭제되었습니다')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '삭제에 실패했습니다')
+    }
+  }
+
+  async function handlePlaylistImport() {
+    if (!playlistImportModal.playlist) return
+    if (!youtubePlaylistUrl.trim()) return toast.error('YouTube 재생목록 URL을 입력하세요')
+
+    setLoading(true)
+    try {
+      const result = await importYouTubePlaylist(playlistImportModal.playlist.id, youtubePlaylistUrl.trim())
+      setVideos(result.videos)
+      setPlaylists(result.playlists)
+      setPlaylistImportModal({ open: false, playlist: null })
+      setYoutubePlaylistUrl('')
+      toast.success(`${result.imported}개 영상을 가져왔습니다${result.skipped > 0 ? ` · 중복 ${result.skipped}개 제외` : ''}`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'YouTube 재생목록 가져오기에 실패했습니다')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function moveVideo(id: string, direction: 'up' | 'down') {
-    const subVideos = videos.filter((v) => v.sub_category_id === videos.find((x) => x.id === id)?.sub_category_id)
+    const current = videos.find((video) => video.id === id)
+    const playlistVideos = videos
+      .filter((video) => video.playlist_id === current?.playlist_id)
       .sort((a, b) => a.sort_order - b.sort_order)
-    const idx = subVideos.findIndex((v) => v.id === id)
+    const idx = playlistVideos.findIndex((video) => video.id === id)
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (swapIdx < 0 || swapIdx >= subVideos.length) return
-    const a = subVideos[idx], b = subVideos[swapIdx]
-    await Promise.all([
-      supabase.from('videos').update({ sort_order: b.sort_order }).eq('id', a.id),
-      supabase.from('videos').update({ sort_order: a.sort_order }).eq('id', b.id),
-    ])
-    setVideos((prev) => prev.map((v) => {
-      if (v.id === a.id) return { ...v, sort_order: b.sort_order }
-      if (v.id === b.id) return { ...v, sort_order: a.sort_order }
-      return v
+    if (swapIdx < 0 || swapIdx >= playlistVideos.length) return
+    const a = playlistVideos[idx]
+    const b = playlistVideos[swapIdx]
+
+    try {
+      await adminVideosRequest('PATCH', { id: a.id, data: { sort_order: b.sort_order } })
+      const nextVideos = await adminVideosRequest('PATCH', { id: b.id, data: { sort_order: a.sort_order } })
+      setVideos(nextVideos)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '순서 변경에 실패했습니다')
+    }
+  }
+
+  async function persistPlaylistOrder(nextSubPlaylists: PlaylistWithCategory[]) {
+    const previousPlaylists = playlists
+    const normalized = nextSubPlaylists.map((playlist, index) => ({
+      ...playlist,
+      sort_order: index + 1,
     }))
+    const normalizedMap = new Map(normalized.map((playlist) => [playlist.id, playlist]))
+    const optimisticPlaylists = playlists.map((playlist) => normalizedMap.get(playlist.id) ?? playlist)
+
+    setPlaylists(optimisticPlaylists)
+    try {
+      const nextPlaylists = await adminPlaylistsRequest('PATCH', {
+        items: normalized.map((playlist) => ({ id: playlist.id, sort_order: playlist.sort_order })),
+      })
+      setPlaylists(nextPlaylists)
+      toast.success('재생목록 순서를 변경했습니다')
+    } catch (error) {
+      setPlaylists(previousPlaylists)
+      toast.error(error instanceof Error ? error.message : '재생목록 순서 변경에 실패했습니다')
+    }
+  }
+
+  function handlePlaylistDrop(targetPlaylist: PlaylistWithCategory) {
+    if (!draggingPlaylistId || draggingPlaylistId === targetPlaylist.id) return
+
+    const draggedPlaylist = playlists.find((playlist) => playlist.id === draggingPlaylistId)
+    if (!draggedPlaylist) return
+
+    if (draggedPlaylist.sub_category_id !== targetPlaylist.sub_category_id) {
+      setDraggingPlaylistId(null)
+      toast.error('재생목록 순서는 같은 소카테고리 안에서만 변경할 수 있습니다')
+      return
+    }
+
+    const subPlaylists = playlists
+      .filter((playlist) => playlist.sub_category_id === targetPlaylist.sub_category_id)
+      .sort((a, b) => a.sort_order - b.sort_order)
+    const nextSubPlaylists = reorderById(subPlaylists, draggingPlaylistId, targetPlaylist.id)
+
+    void persistPlaylistOrder(nextSubPlaylists)
+    setDraggingPlaylistId(null)
+  }
+
+  async function persistVideoOrder(playlistId: string, nextPlaylistVideos: VideoWithRelations[]) {
+    const previousVideos = videos
+    const normalized = nextPlaylistVideos.map((video, index) => ({
+      ...video,
+      sort_order: index + 1,
+    }))
+    const normalizedMap = new Map(normalized.map((video) => [video.id, video]))
+    const optimisticVideos = videos.map((video) => normalizedMap.get(video.id) ?? video)
+
+    setVideos(optimisticVideos)
+    try {
+      const nextVideos = await adminVideosRequest('PATCH', {
+        items: normalized.map((video) => ({ id: video.id, sort_order: video.sort_order })),
+      })
+      setVideos(nextVideos)
+      toast.success('영상 순서를 변경했습니다')
+    } catch (error) {
+      setVideos(previousVideos)
+      toast.error(error instanceof Error ? error.message : '영상 순서 변경에 실패했습니다')
+    }
+  }
+
+  function handleVideoDrop(targetVideo: VideoWithRelations) {
+    if (!draggingVideoId || draggingVideoId === targetVideo.id) return
+
+    if (sortBy !== 'sort_order') {
+      setDraggingVideoId(null)
+      toast.error('영상 순서 변경은 정렬을 재생목록 순서로 둔 상태에서만 가능합니다')
+      return
+    }
+
+    const draggedVideo = videos.find((video) => video.id === draggingVideoId)
+    if (!draggedVideo) return
+
+    if (draggedVideo.playlist_id !== targetVideo.playlist_id || !targetVideo.playlist_id) {
+      setDraggingVideoId(null)
+      toast.error('영상 순서는 같은 재생목록 안에서만 변경할 수 있습니다')
+      return
+    }
+
+    const playlistVideos = videos
+      .filter((video) => video.playlist_id === targetVideo.playlist_id)
+      .sort((a, b) => a.sort_order - b.sort_order)
+    const nextPlaylistVideos = reorderById(playlistVideos, draggingVideoId, targetVideo.id)
+
+    void persistVideoOrder(targetVideo.playlist_id, nextPlaylistVideos)
+    setDraggingVideoId(null)
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">영상 관리</h1>
-          <p className="text-sm text-slate-500 mt-1">YouTube 영상을 추가하고 관리합니다</p>
+          <h1 className="text-2xl font-bold text-foreground">영상 관리</h1>
+          <p className="mt-1 text-sm text-muted-foreground">소카테고리별 재생목록을 만들고, 그 안에 YouTube 영상을 추가합니다</p>
         </div>
-        <Button onClick={() => { setForm(emptyForm); setModal({ open: true, editing: null }) }} className="gap-2">
-          <Plus className="w-4 h-4" />
-          영상 추가
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={openPlaylistCreate} className="gap-2">
+            <ListPlus className="h-4 w-4" />
+            재생목록 만들기
+          </Button>
+        </div>
       </div>
 
-      {/* 필터 */}
-      <div className="flex gap-3 mb-4">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+      <div className="mb-4 flex flex-wrap gap-3">
+        <div className="relative max-w-xs flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
             placeholder="제목으로 검색"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(event) => setSearch(event.target.value)}
           />
         </div>
-        <Select value={filterSubId} onValueChange={(v) => setFilterSubId(v ?? 'all')}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="소카테고리 필터" />
+        <Select
+          value={filterMainId}
+          onValueChange={(value) => {
+            setFilterMainId(value ?? 'all')
+            setFilterSubId('all')
+            setFilterPlaylistId('all')
+          }}
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="대카테고리">
+              {filterMainId === 'all' ? '대카테고리 전체' : selectedMainLabel}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">전체</SelectItem>
-            {allSubs.map((s) => (
-              <SelectItem key={s.id} value={s.id}>{s.mainName} / {s.name}</SelectItem>
+            <SelectItem value="all">대카테고리 전체</SelectItem>
+            {categories.map((main) => (
+              <SelectItem key={main.id} value={main.id}>{main.name}</SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={filterSubId}
+          onValueChange={(value) => {
+            setFilterSubId(value ?? 'all')
+            setFilterPlaylistId('all')
+          }}
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="소카테고리">
+              {filterSubId === 'all'
+                ? '소카테고리 전체'
+                : selectedFilterSubLabel
+                  ? `${selectedFilterSubLabel.mainName} / ${selectedFilterSubLabel.name}`
+                  : undefined}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">소카테고리 전체</SelectItem>
+            {visibleSubs.map((sub) => (
+              <SelectItem key={sub.id} value={sub.id}>{sub.mainName} / {sub.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterPlaylistId} onValueChange={(value) => setFilterPlaylistId(value ?? 'all')}>
+          <SelectTrigger className="w-52">
+            <SelectValue placeholder="재생목록">
+              {filterPlaylistId === 'all' ? '재생목록 전체' : selectedFilterPlaylist?.name}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">재생목록 전체</SelectItem>
+            {visiblePlaylists.map((playlist) => (
+              <SelectItem key={playlist.id} value={playlist.id}>
+                {playlist.sub_category?.name} / {playlist.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={sortBy} onValueChange={(value) => setSortBy((value ?? 'sort_order') as VideoSort)}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="정렬">{sortLabels[sortBy]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="sort_order">재생목록 순서</SelectItem>
+            <SelectItem value="created_desc">등록순</SelectItem>
+            <SelectItem value="title_asc">이름순</SelectItem>
+            <SelectItem value="youtube_published_desc">유튜브 원본 날짜순</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-3 2xl:grid-cols-4">
+        {visiblePlaylists.map((playlist) => {
+          const count = videos.filter((video) => video.playlist_id === playlist.id).length
+          const isActive = filterPlaylistId === playlist.id
+
+          return (
+            <div
+              key={playlist.id}
+              className={`rounded-lg border bg-card p-3 transition-colors ${isActive ? 'border-primary/70 bg-primary/5' : 'hover:border-primary/30'} ${draggingPlaylistId === playlist.id ? 'opacity-60' : ''}`}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => handlePlaylistDrop(playlist)}
+            >
+              <button
+                type="button"
+                onClick={() => setFilterPlaylistId(playlist.id)}
+                className="block w-full text-left"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <span
+                      draggable
+                      className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing"
+                      onClick={(event) => event.stopPropagation()}
+                      onDragStart={(event) => {
+                        event.stopPropagation()
+                        event.dataTransfer.effectAllowed = 'move'
+                        setDraggingPlaylistId(playlist.id)
+                      }}
+                      onDragEnd={() => setDraggingPlaylistId(null)}
+                    >
+                      <GripVertical className="h-4 w-4 text-muted-foreground" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">{playlist.name}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {playlist.sub_category?.main_category?.name} / {playlist.sub_category?.name} · {count}개 영상
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <Badge variant="outline" className="text-xs">
+                      {difficultyLabels[playlist.difficulty ?? 'beginner']}
+                    </Badge>
+                    <Badge variant={playlist.is_published ? 'secondary' : 'outline'} className="text-xs">
+                      {playlist.is_published ? '공개' : '비공개'}
+                    </Badge>
+                  </div>
+                </div>
+              </button>
+              <div className="mt-3 flex items-center justify-end gap-1">
+                <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={() => openVideoCreateForPlaylist(playlist.id)}>
+                  <Plus className="h-3.5 w-3.5" />
+                  영상 추가
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2"
+                  onClick={() => {
+                    setYoutubePlaylistUrl('')
+                    setPlaylistImportModal({ open: true, playlist })
+                  }}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  가져오기
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePlaylistPublish(playlist)}>
+                  {playlist.is_published ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
+                  setPlaylistForm({
+                    name: playlist.name,
+                    slug: playlist.slug,
+                    description: playlist.description ?? '',
+                    thumbnail_url: playlist.thumbnail_url ?? '',
+                    sub_category_id: playlist.sub_category_id,
+                    difficulty: playlist.difficulty ?? 'beginner',
+                    is_published: playlist.is_published,
+                  })
+                  setPlaylistModal({ open: true, editing: playlist })
+                }}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deletePlaylist(playlist.id)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )
+        })}
+        {visiblePlaylists.length === 0 && (
+          <div className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">
+            먼저 재생목록을 만들어 주세요.
+          </div>
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded-xl border bg-card">
         <Table>
           <TableHeader>
-            <TableRow className="bg-slate-50">
-              <TableHead className="w-10">순서</TableHead>
+            <TableRow className="bg-muted/50">
+              <TableHead className="w-16">순서</TableHead>
               <TableHead className="w-20">썸네일</TableHead>
               <TableHead>제목</TableHead>
-              <TableHead>카테고리</TableHead>
+              <TableHead>재생목록</TableHead>
               <TableHead className="w-16">상태</TableHead>
               <TableHead className="w-28 text-right">액션</TableHead>
             </TableRow>
@@ -204,53 +771,87 @@ export function VideoManager({ initialVideos, categories }: Props) {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-12 text-slate-400">
+                <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
                   영상이 없습니다
                 </TableCell>
               </TableRow>
             ) : (
               filtered.map((video, idx) => (
-                <TableRow key={video.id}>
+                <TableRow
+                  key={video.id}
+                  className={draggingVideoId === video.id ? 'opacity-60' : undefined}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => handleVideoDrop(video)}
+                >
                   <TableCell>
-                    <div className="flex flex-col gap-0.5">
-                      <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => moveVideo(video.id, 'up')} disabled={idx === 0}>↑</Button>
-                      <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => moveVideo(video.id, 'down')} disabled={idx === filtered.length - 1}>↓</Button>
+                    <div className="flex items-center gap-1">
+                      <span
+                        draggable
+                        className="cursor-grab active:cursor-grabbing"
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move'
+                          setDraggingVideoId(video.id)
+                        }}
+                        onDragEnd={() => setDraggingVideoId(null)}
+                      >
+                        <GripVertical className="h-4 w-4 text-muted-foreground" />
+                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => moveVideo(video.id, 'up')} disabled={idx === 0}>↑</Button>
+                        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => moveVideo(video.id, 'down')} disabled={idx === filtered.length - 1}>↓</Button>
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
                     {video.thumbnail_url && (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={video.thumbnail_url} alt={video.title} className="w-16 h-9 object-cover rounded" />
+                      <img src={video.thumbnail_url} alt={video.title} className="h-9 w-16 rounded object-cover" />
                     )}
                   </TableCell>
                   <TableCell>
-                    <p className="text-sm font-medium text-slate-900 line-clamp-2">{video.title}</p>
-                    {video.duration && <span className="text-xs text-slate-400">{video.duration}</span>}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-xs text-slate-400">{video.sub_category?.main_category?.name}</span>
-                      <Badge variant="secondary" className="text-xs w-fit">{video.sub_category?.name}</Badge>
+                    <p className="line-clamp-2 text-sm font-medium text-foreground">{video.title}</p>
+                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                      {video.duration && <span>{video.duration}</span>}
+                      {video.youtube_published_at && <span>원본 {new Date(video.youtube_published_at).toLocaleDateString('ko-KR')}</span>}
+                      {video.youtube_channel_name && <span>출처 {video.youtube_channel_name}</span>}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={video.is_published ? 'default' : 'secondary'}>
-                      {video.is_published ? '공개' : '비공개'}
-                    </Badge>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs text-muted-foreground">{video.sub_category?.main_category?.name} / {video.sub_category?.name}</span>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="secondary" className="w-fit text-xs">{video.playlist?.name ?? '재생목록 없음'}</Badge>
+                        <Badge variant="outline" className="w-fit text-xs">
+                          {difficultyLabels[video.playlist?.difficulty ?? video.difficulty ?? 'beginner']}
+                        </Badge>
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1 justify-end">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePublish(video)} title={video.is_published ? '비공개' : '공개'}>
-                        {video.is_published ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </Button>
+                    <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={() => toggleVideoPublish(video)}>
+                      {video.is_published ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                      {video.is_published ? '공개' : '비공개'}
+                    </Button>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-1">
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
-                        setForm({ title: video.title, description: video.description ?? '', youtube_url: video.youtube_url, sub_category_id: video.sub_category_id, duration: video.duration ?? '' })
-                        setModal({ open: true, editing: video })
+                        setVideoForm({
+                          title: video.title,
+                          description: video.description ?? '',
+                          youtube_url: video.youtube_url,
+                          playlist_id: video.playlist_id ?? '',
+                          is_published: video.is_published,
+                          duration: video.duration ?? '',
+                          youtube_published_at: video.youtube_published_at,
+                          youtube_channel_name: video.youtube_channel_name ?? '',
+                        })
+                        setVideoModal({ open: true, editing: video })
                       }}>
-                        <Pencil className="w-3.5 h-3.5" />
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => deleteVideo(video.id)}>
-                        <Trash2 className="w-3.5 h-3.5" />
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteVideo(video.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </TableCell>
@@ -261,52 +862,26 @@ export function VideoManager({ initialVideos, categories }: Props) {
         </Table>
       </div>
 
-      {/* 영상 모달 */}
-      <Dialog open={modal.open} onOpenChange={(o) => setModal({ open: o, editing: null })}>
+      <Dialog open={playlistModal.open} onOpenChange={(open) => setPlaylistModal({ open, editing: null })}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{modal.editing ? '영상 수정' : '영상 추가'}</DialogTitle>
+            <DialogTitle>{playlistModal.editing ? '재생목록 수정' : '재생목록 만들기'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>YouTube URL *</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={form.youtube_url}
-                  onChange={(e) => handleUrlChange(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="flex-1"
-                />
-                {urlLoading && <Loader2 className="w-4 h-4 animate-spin mt-2.5 text-slate-400" />}
-              </div>
-              {form.youtube_url && extractYouTubeId(form.youtube_url) && (
-                <div className="w-full aspect-video rounded overflow-hidden bg-slate-100">
-                  <iframe
-                    src={`https://www.youtube.com/embed/${extractYouTubeId(form.youtube_url) as string}`}
-                    className="w-full h-full"
-                    allowFullScreen
-                  />
-                </div>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label>제목 *</Label>
-              <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="영상 제목" />
-            </div>
-            <div className="space-y-2">
               <Label>소카테고리 *</Label>
-              <Select value={form.sub_category_id} onValueChange={(v) => setForm({ ...form, sub_category_id: v ?? '' })}>
+              <Select value={playlistForm.sub_category_id} onValueChange={(value) => setPlaylistForm({ ...playlistForm, sub_category_id: value ?? '' })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="소카테고리 선택" />
+                  <SelectValue placeholder="소카테고리 선택">
+                    {selectedPlaylistSubLabel ? `${selectedPlaylistSubLabel.mainName} / ${selectedPlaylistSubLabel.name}` : undefined}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {categories.map((main) => (
                     <div key={main.id}>
-                      <div className="px-2 py-1.5 text-xs font-semibold text-slate-400">{main.name}</div>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">{main.name}</div>
                       {main.sub_categories?.map((sub) => (
-                        <SelectItem key={sub.id} value={sub.id} className="pl-4">
-                          {sub.name}
-                        </SelectItem>
+                        <SelectItem key={sub.id} value={sub.id} className="pl-4">{sub.name}</SelectItem>
                       ))}
                     </div>
                   ))}
@@ -314,23 +889,225 @@ export function VideoManager({ initialVideos, categories }: Props) {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>영상 길이 (선택)</Label>
-              <Input value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })} placeholder="예: 15:30" />
+              <Label>재생목록 이름 *</Label>
+              <Input
+                value={playlistForm.name}
+                onChange={(event) => setPlaylistForm({
+                  ...playlistForm,
+                  name: event.target.value,
+                  slug: playlistModal.editing ? playlistForm.slug : slugify(event.target.value),
+                })}
+                placeholder="예: 입문자를 위한 기본 강의"
+              />
             </div>
             <div className="space-y-2">
-              <Label>설명 (선택)</Label>
-              <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} />
+              <Label>설명</Label>
+              <Textarea
+                value={playlistForm.description}
+                onChange={(event) => setPlaylistForm({ ...playlistForm, description: event.target.value })}
+                placeholder="재생목록 설명"
+              />
             </div>
+            <div className="space-y-2">
+              <Label>이미지 URL</Label>
+              <Input
+                value={playlistForm.thumbnail_url}
+                onChange={(event) => setPlaylistForm({ ...playlistForm, thumbnail_url: event.target.value })}
+                placeholder="https://..."
+              />
+              <div className="aspect-video w-full overflow-hidden rounded-lg bg-muted">
+                {playlistForm.thumbnail_url.trim() ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={playlistForm.thumbnail_url}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+                    16:9 이미지 미리보기
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>난이도 *</Label>
+              <Select
+                value={playlistForm.difficulty}
+                onValueChange={(value) => setPlaylistForm({ ...playlistForm, difficulty: (value ?? 'beginner') as VideoDifficulty })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="난이도 선택">{difficultyLabels[playlistForm.difficulty]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="beginner">초급</SelectItem>
+                  <SelectItem value="intermediate">중급</SelectItem>
+                  <SelectItem value="advanced">고급</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <PublishToggle
+              value={playlistForm.is_published}
+              onChange={(value) => setPlaylistForm({ ...playlistForm, is_published: value })}
+            />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModal({ open: false, editing: null })}>취소</Button>
-            <Button onClick={saveVideo} disabled={loading}>
-              {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            <Button variant="outline" onClick={() => setPlaylistModal({ open: false, editing: null })}>취소</Button>
+            <Button onClick={savePlaylist} disabled={loading}>
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               저장
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={videoModal.open} onOpenChange={(open) => setVideoModal({ open, editing: null })}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{videoModal.editing ? '영상 수정' : '영상 추가'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>YouTube URL *</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={videoForm.youtube_url}
+                  onChange={(event) => handleUrlChange(event.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="flex-1"
+                />
+                {urlLoading && <Loader2 className="mt-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
+              </div>
+              {videoForm.youtube_url && extractYouTubeId(videoForm.youtube_url) && (
+                <div className="aspect-video w-full overflow-hidden rounded bg-muted">
+                  <iframe
+                    src={`https://www.youtube.com/embed/${extractYouTubeId(videoForm.youtube_url) as string}`}
+                    className="h-full w-full"
+                    allowFullScreen
+                  />
+                </div>
+              )}
+              {videoForm.title && (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-sm font-medium text-foreground">{videoForm.title}</p>
+                  {videoForm.duration && <p className="mt-1 text-xs text-muted-foreground">{videoForm.duration}</p>}
+                  {videoForm.youtube_channel_name && <p className="mt-1 text-xs text-muted-foreground">출처 {videoForm.youtube_channel_name}</p>}
+                  {videoForm.description && <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{videoForm.description}</p>}
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>재생목록 *</Label>
+              <Select value={videoForm.playlist_id} onValueChange={(value) => setVideoForm({ ...videoForm, playlist_id: value ?? '' })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="재생목록 선택">
+                    {selectedVideoPlaylist
+                      ? `${selectedVideoPlaylist.sub_category?.main_category?.name} / ${selectedVideoPlaylist.sub_category?.name} / ${selectedVideoPlaylist.name}`
+                      : undefined}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {playlists.map((playlist) => (
+                    <SelectItem key={playlist.id} value={playlist.id}>
+                      {playlist.sub_category?.main_category?.name} / {playlist.sub_category?.name} / {playlist.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <PublishToggle
+              value={videoForm.is_published}
+              onChange={(value) => setVideoForm({ ...videoForm, is_published: value })}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVideoModal({ open: false, editing: null })}>취소</Button>
+            <Button onClick={saveVideo} disabled={loading || urlLoading}>
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              저장
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={playlistImportModal.open} onOpenChange={(open) => {
+        setPlaylistImportModal({ open, playlist: open ? playlistImportModal.playlist : null })
+        if (!open) setYoutubePlaylistUrl('')
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>YouTube 재생목록 가져오기</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <p className="font-medium text-foreground">{playlistImportModal.playlist?.name}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                공개 영상만 가져오며, 이미 등록된 영상은 중복 제외됩니다.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>YouTube 재생목록 URL *</Label>
+              <Input
+                value={youtubePlaylistUrl}
+                onChange={(event) => setYoutubePlaylistUrl(event.target.value)}
+                placeholder="https://www.youtube.com/playlist?list=..."
+              />
+              <p className="text-xs text-muted-foreground">
+                YouTube Data API 키가 필요합니다. .env.local에 YOUTUBE_API_KEY를 추가한 뒤 서버를 재시작하세요.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPlaylistImportModal({ open: false, playlist: null })
+                setYoutubePlaylistUrl('')
+              }}
+            >
+              취소
+            </Button>
+            <Button onClick={handlePlaylistImport} disabled={loading}>
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              가져오기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function PublishToggle({ value, onChange }: { value: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <div className="space-y-2">
+      <Label>상태 *</Label>
+      <div className="inline-flex h-8 rounded-lg bg-muted p-[3px]">
+        <button
+          type="button"
+          onClick={() => onChange(true)}
+          className={`inline-flex items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${
+            value
+              ? 'bg-background text-foreground shadow-sm dark:border dark:border-input dark:bg-input/30'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Eye className="h-3.5 w-3.5" />
+          공개
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(false)}
+          className={`inline-flex items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${
+            !value
+              ? 'bg-background text-foreground shadow-sm dark:border dark:border-input dark:bg-input/30'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <EyeOff className="h-3.5 w-3.5" />
+          비공개
+        </button>
+      </div>
     </div>
   )
 }
