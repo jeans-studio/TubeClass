@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { BookOpen, ExternalLink, Mail, ShieldCheck } from 'lucide-react'
+import { BookOpen, ExternalLink, MessageSquareText, ShieldCheck } from 'lucide-react'
 
 export const metadata: Metadata = {
   title: '소개 | TubeClass',
@@ -63,13 +63,13 @@ export default function AboutPage() {
               운영자에게 알려주세요.
             </p>
             <div className="flex flex-wrap gap-3 text-xs">
-              <a
-                href="mailto:contact@tubeclass.app?subject=TubeClass%20%EC%BD%98%ED%85%90%EC%B8%A0%20%EB%AC%B8%EC%9D%98"
+              <Link
+                href="/feedback"
                 className="inline-flex items-center gap-1 text-primary hover:underline"
               >
-                문제 신고 메일 보내기
-                <Mail className="h-3 w-3" />
-              </a>
+                피드백 남기기
+                <MessageSquareText className="h-3 w-3" />
+              </Link>
               <Link href="/terms" className="inline-flex items-center gap-1 text-primary hover:underline">
                 이용약관
                 <ExternalLink className="h-3 w-3" />

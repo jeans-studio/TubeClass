@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import type { MainCategory } from '@/types'
-import { BookOpen, FileText, History, Info, LayoutDashboard, Settings, Shield } from 'lucide-react'
+import { BookOpen, FileText, History, Info, LayoutDashboard, MessageSquareText, Settings, Shield } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 interface SidebarProps {
@@ -137,6 +137,19 @@ export function Sidebar({ categories, isAdmin, isLoggedIn, onNavigate }: Sidebar
         >
           <Info className="w-3.5 h-3.5" />
           소개
+        </Link>
+        <Link
+          href="/feedback"
+          onClick={onNavigate}
+          className={cn(
+            'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+            pathname === '/feedback'
+              ? 'bg-accent text-accent-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+          )}
+        >
+          <MessageSquareText className="w-3.5 h-3.5" />
+          피드백
         </Link>
         <Link
           href="/terms"
