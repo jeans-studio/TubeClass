@@ -73,6 +73,7 @@ interface AchievementBadgeProps {
   tone?: BadgeTone
   shape?: BadgeShape
   imageUrl?: string | null
+  compact?: boolean
 }
 
 export function AchievementBadge({
@@ -84,21 +85,24 @@ export function AchievementBadge({
   tone = 'gold',
   shape = 'round',
   imageUrl,
+  compact = false,
 }: AchievementBadgeProps) {
   const colors = toneStyles[tone]
 
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-xl p-3 ring-1 transition-colors',
+        'relative overflow-hidden rounded-xl ring-1 transition-colors',
+        compact ? 'p-2.5' : 'p-3',
         achieved ? cn('shadow-sm', colors.card) : 'bg-card opacity-65 grayscale ring-foreground/10'
       )}
     >
-      <div className="flex items-start gap-3">
-        <div className="relative h-14 w-14 shrink-0">
+      <div className={cn('flex items-start', compact ? 'gap-2.5' : 'gap-3')}>
+        <div className={cn('relative shrink-0', compact ? 'h-10 w-10' : 'h-14 w-14')}>
           <div
             className={cn(
-              'absolute inset-0 bg-gradient-to-br p-1 shadow-[inset_0_2px_8px_rgba(255,255,255,0.35),0_8px_16px_rgba(0,0,0,0.24)]',
+              'absolute inset-0 bg-gradient-to-br shadow-[inset_0_2px_8px_rgba(255,255,255,0.35),0_8px_16px_rgba(0,0,0,0.24)]',
+              compact ? 'p-0.5' : 'p-1',
               colors.shell,
               shapeStyles[shape]
             )}
@@ -114,28 +118,28 @@ export function AchievementBadge({
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_28%,rgba(255,255,255,0.24),transparent_34%),radial-gradient(circle_at_50%_70%,rgba(255,255,255,0.08),transparent_45%)]" />
               {imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={imageUrl} alt="" className="relative h-8 w-8 object-contain" />
+                <img src={imageUrl} alt="" className={cn('relative object-contain', compact ? 'h-5 w-5' : 'h-8 w-8')} />
               ) : (
-                <Icon className={cn('relative h-6 w-6 drop-shadow-sm', colors.icon)} strokeWidth={1.8} />
+                <Icon className={cn('relative drop-shadow-sm', compact ? 'h-4.5 w-4.5' : 'h-6 w-6', colors.icon)} strokeWidth={1.8} />
               )}
             </div>
           </div>
-          <div className={cn('absolute -bottom-1 left-1.5 right-1.5 rounded-sm px-1 py-0.5 text-center text-[9px] font-bold shadow-sm', colors.ribbon)}>
+          <div className={cn('absolute rounded-sm px-1 py-0.5 text-center font-bold shadow-sm', compact ? '-bottom-1 left-1 right-1 text-[8px]' : '-bottom-1 left-1.5 right-1.5 text-[9px]', colors.ribbon)}>
             {achieved ? '획득' : 'LOCK'}
           </div>
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
-            <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{title}</h3>
+            <h3 className={cn('line-clamp-2 font-semibold leading-snug text-foreground', compact ? 'text-xs' : 'text-sm')}>{title}</h3>
             {achieved ? (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+              <CheckCircle2 className={cn('mt-0.5 shrink-0 text-emerald-500', compact ? 'h-3.5 w-3.5' : 'h-4 w-4')} />
             ) : (
-              <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <Lock className={cn('mt-0.5 shrink-0 text-muted-foreground', compact ? 'h-3.5 w-3.5' : 'h-4 w-4')} />
             )}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{description}</p>
-          <p className="mt-2 text-xs font-medium text-foreground">{progressLabel}</p>
+          <p className={cn('mt-1 text-xs text-muted-foreground', compact ? 'line-clamp-1 leading-snug' : 'line-clamp-2 leading-relaxed')}>{description}</p>
+          <p className={cn('font-medium text-foreground', compact ? 'mt-1 text-[11px]' : 'mt-2 text-xs')}>{progressLabel}</p>
         </div>
       </div>
     </div>

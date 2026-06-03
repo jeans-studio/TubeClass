@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Download, Eye, EyeOff, GripVertical, ListPlus, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { ChevronRight, Download, Eye, EyeOff, FolderOpen, GripVertical, ListPlus, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 type VideoWithRelations = Video & {
@@ -192,11 +192,6 @@ export function VideoManager({ initialVideos, initialPlaylists, categories }: Pr
       (main.sub_categories ?? []).map((sub) => ({ ...sub, mainId: main.id, mainName: main.name }))
     ), [categories])
 
-  const visibleSubs = useMemo(() => {
-    if (filterMainId === 'all') return allSubs
-    return allSubs.filter((sub) => sub.mainId === filterMainId)
-  }, [allSubs, filterMainId])
-
   const visiblePlaylists = useMemo(() => {
     return playlists.filter((playlist) => {
       const matchMain = filterMainId === 'all' || playlist.sub_category?.main_category?.id === filterMainId
@@ -236,6 +231,45 @@ export function VideoManager({ initialVideos, initialPlaylists, categories }: Pr
       return a.sort_order - b.sort_order
     })
   }, [videos, search, filterMainId, filterSubId, filterPlaylistId, sortBy])
+
+  const playlistVideoCounts = useMemo(() => {
+    return videos.reduce<Record<string, number>>((acc, video) => {
+      if (!video.playlist_id) return acc
+      acc[video.playlist_id] = (acc[video.playlist_id] ?? 0) + 1
+      return acc
+    }, {})
+  }, [videos])
+
+  const selectedContextTitle = selectedFilterPlaylist?.name
+    ?? selectedFilterSubLabel?.name
+    ?? selectedMainLabel
+    ?? '전체 영상'
+  const selectedContextDescription = selectedFilterPlaylist
+    ? `${selectedFilterPlaylist.sub_category?.main_category?.name} / ${selectedFilterPlaylist.sub_category?.name}`
+    : selectedFilterSubLabel
+      ? `${selectedFilterSubLabel.mainName} / ${selectedFilterSubLabel.name}`
+      : selectedMainLabel
+        ? `${selectedMainLabel} 전체`
+        : '모든 카테고리'
+  const selectedScopePlaylistCount = visiblePlaylists.length
+
+  function selectMain(mainId: string) {
+    setFilterMainId(mainId)
+    setFilterSubId('all')
+    setFilterPlaylistId('all')
+  }
+
+  function selectSub(mainId: string, subId: string) {
+    setFilterMainId(mainId)
+    setFilterSubId(subId)
+    setFilterPlaylistId('all')
+  }
+
+  function selectPlaylist(playlist: PlaylistWithCategory) {
+    setFilterMainId(playlist.sub_category?.main_category?.id ?? 'all')
+    setFilterSubId(playlist.sub_category_id)
+    setFilterPlaylistId(playlist.id)
+  }
 
   function openPlaylistCreate() {
     setPlaylistForm({
@@ -565,301 +599,319 @@ export function VideoManager({ initialVideos, initialPlaylists, categories }: Pr
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between gap-3">
+      <div className="mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">영상 관리</h1>
           <p className="mt-1 text-sm text-muted-foreground">소카테고리별 재생목록을 만들고, 그 안에 YouTube 영상을 추가합니다</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={openPlaylistCreate} className="gap-2">
-            <ListPlus className="h-4 w-4" />
-            재생목록 만들기
-          </Button>
-        </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-3">
-        <div className="relative max-w-xs flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="제목으로 검색"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </div>
-        <Select
-          value={filterMainId}
-          onValueChange={(value) => {
-            setFilterMainId(value ?? 'all')
-            setFilterSubId('all')
-            setFilterPlaylistId('all')
-          }}
-        >
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="대카테고리">
-              {filterMainId === 'all' ? '대카테고리 전체' : selectedMainLabel}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">대카테고리 전체</SelectItem>
-            {categories.map((main) => (
-              <SelectItem key={main.id} value={main.id}>{main.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={filterSubId}
-          onValueChange={(value) => {
-            setFilterSubId(value ?? 'all')
-            setFilterPlaylistId('all')
-          }}
-        >
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="소카테고리">
-              {filterSubId === 'all'
-                ? '소카테고리 전체'
-                : selectedFilterSubLabel
-                  ? `${selectedFilterSubLabel.mainName} / ${selectedFilterSubLabel.name}`
-                  : undefined}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">소카테고리 전체</SelectItem>
-            {visibleSubs.map((sub) => (
-              <SelectItem key={sub.id} value={sub.id}>{sub.mainName} / {sub.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filterPlaylistId} onValueChange={(value) => setFilterPlaylistId(value ?? 'all')}>
-          <SelectTrigger className="w-52">
-            <SelectValue placeholder="재생목록">
-              {filterPlaylistId === 'all' ? '재생목록 전체' : selectedFilterPlaylist?.name}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">재생목록 전체</SelectItem>
-            {visiblePlaylists.map((playlist) => (
-              <SelectItem key={playlist.id} value={playlist.id}>
-                {playlist.sub_category?.name} / {playlist.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={sortBy} onValueChange={(value) => setSortBy((value ?? 'sort_order') as VideoSort)}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="정렬">{sortLabels[sortBy]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="sort_order">재생목록 순서</SelectItem>
-            <SelectItem value="created_desc">등록순</SelectItem>
-            <SelectItem value="title_asc">이름순</SelectItem>
-            <SelectItem value="youtube_published_desc">유튜브 원본 날짜순</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-3 2xl:grid-cols-4">
-        {visiblePlaylists.map((playlist) => {
-          const count = videos.filter((video) => video.playlist_id === playlist.id).length
-          const isActive = filterPlaylistId === playlist.id
-
-          return (
-            <div
-              key={playlist.id}
-              className={`rounded-lg border bg-card p-3 transition-colors ${isActive ? 'border-primary/70 bg-primary/5' : 'hover:border-primary/30'} ${draggingPlaylistId === playlist.id ? 'opacity-60' : ''}`}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={() => handlePlaylistDrop(playlist)}
-            >
-              <button
-                type="button"
-                onClick={() => setFilterPlaylistId(playlist.id)}
-                className="block w-full text-left"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 items-start gap-2">
-                    <span
-                      draggable
-                      className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing"
-                      onClick={(event) => event.stopPropagation()}
-                      onDragStart={(event) => {
-                        event.stopPropagation()
-                        event.dataTransfer.effectAllowed = 'move'
-                        setDraggingPlaylistId(playlist.id)
-                      }}
-                      onDragEnd={() => setDraggingPlaylistId(null)}
-                    >
-                      <GripVertical className="h-4 w-4 text-muted-foreground" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-foreground">{playlist.name}</p>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {playlist.sub_category?.main_category?.name} / {playlist.sub_category?.name} · {count}개 영상
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <Badge variant="outline" className="text-xs">
-                      {difficultyLabels[playlist.difficulty ?? 'beginner']}
-                    </Badge>
-                    <Badge variant={playlist.is_published ? 'secondary' : 'outline'} className="text-xs">
-                      {playlist.is_published ? '공개' : '비공개'}
-                    </Badge>
-                  </div>
-                </div>
-              </button>
-              <div className="mt-3 flex items-center justify-end gap-1">
-                <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={() => openVideoCreateForPlaylist(playlist.id)}>
-                  <Plus className="h-3.5 w-3.5" />
-                  영상 추가
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1.5 px-2"
-                  onClick={() => {
-                    setYoutubePlaylistUrl('')
-                    setPlaylistImportModal({ open: true, playlist })
-                  }}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  가져오기
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePlaylistPublish(playlist)}>
-                  {playlist.is_published ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
-                  setPlaylistForm({
-                    name: playlist.name,
-                    slug: playlist.slug,
-                    description: playlist.description ?? '',
-                    thumbnail_url: playlist.thumbnail_url ?? '',
-                    sub_category_id: playlist.sub_category_id,
-                    difficulty: playlist.difficulty ?? 'beginner',
-                    is_published: playlist.is_published,
-                  })
-                  setPlaylistModal({ open: true, editing: playlist })
-                }}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deletePlaylist(playlist.id)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+      <div className="grid min-h-[calc(100vh-13rem)] grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <aside className="rounded-xl border bg-card">
+          <div className="border-b px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <h2 className="truncate text-sm font-semibold text-foreground">콘텐츠 구조</h2>
               </div>
+              <Button variant="outline" size="sm" onClick={openPlaylistCreate} className="h-7 shrink-0 gap-1.5 px-2">
+                <ListPlus className="h-3.5 w-3.5" />
+                만들기
+              </Button>
             </div>
-          )
-        })}
-        {visiblePlaylists.length === 0 && (
-          <div className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">
-            먼저 재생목록을 만들어 주세요.
+            <button
+              type="button"
+              onClick={() => {
+                setFilterMainId('all')
+                setFilterSubId('all')
+                setFilterPlaylistId('all')
+              }}
+              className={`mt-3 flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm transition-colors ${filterMainId === 'all' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}`}
+            >
+              <span>전체 영상</span>
+              <Badge variant="secondary" className="text-xs">{videos.length}</Badge>
+            </button>
           </div>
-        )}
-      </div>
+          <div className="max-h-[calc(100vh-18rem)] overflow-y-auto p-3">
+            <div className="space-y-3">
+              {categories.map((main) => {
+                const mainPlaylists = playlists.filter((playlist) => playlist.sub_category?.main_category?.id === main.id)
+                const isMainActive = filterMainId === main.id && filterSubId === 'all'
 
-      <div className="overflow-hidden rounded-xl border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50">
-              <TableHead className="w-16">순서</TableHead>
-              <TableHead className="w-20">썸네일</TableHead>
-              <TableHead>제목</TableHead>
-              <TableHead>재생목록</TableHead>
-              <TableHead className="w-16">상태</TableHead>
-              <TableHead className="w-28 text-right">액션</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
-                  영상이 없습니다
-                </TableCell>
-              </TableRow>
-            ) : (
-              filtered.map((video, idx) => (
-                <TableRow
-                  key={video.id}
-                  className={draggingVideoId === video.id ? 'opacity-60' : undefined}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => handleVideoDrop(video)}
-                >
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <span
-                        draggable
-                        className="cursor-grab active:cursor-grabbing"
-                        onDragStart={(event) => {
-                          event.dataTransfer.effectAllowed = 'move'
-                          setDraggingVideoId(video.id)
-                        }}
-                        onDragEnd={() => setDraggingVideoId(null)}
-                      >
-                        <GripVertical className="h-4 w-4 text-muted-foreground" />
-                      </span>
-                      <div className="flex flex-col gap-0.5">
-                        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => moveVideo(video.id, 'up')} disabled={idx === 0}>↑</Button>
-                        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => moveVideo(video.id, 'down')} disabled={idx === filtered.length - 1}>↓</Button>
-                      </div>
+                return (
+                  <div key={main.id} className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => selectMain(main.id)}
+                      className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm font-medium transition-colors ${isMainActive ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent'}`}
+                    >
+                      <span className="truncate">{main.name}</span>
+                      <Badge variant="outline" className="shrink-0 text-xs">{mainPlaylists.length}</Badge>
+                    </button>
+
+                    <div className="ml-3 space-y-1 border-l pl-3">
+                      {main.sub_categories?.map((sub) => {
+                        const subPlaylists = playlists
+                          .filter((playlist) => playlist.sub_category_id === sub.id)
+                          .sort((a, b) => a.sort_order - b.sort_order)
+                        const isSubActive = filterSubId === sub.id && filterPlaylistId === 'all'
+
+                        return (
+                          <div key={sub.id} className="space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => selectSub(main.id, sub.id)}
+                              className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${isSubActive ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}`}
+                            >
+                              <span className="truncate">{sub.name}</span>
+                              <span className="shrink-0 opacity-70">{subPlaylists.length}</span>
+                            </button>
+
+                            <div className="ml-3 space-y-1">
+                              {subPlaylists.map((playlist) => {
+                                const isActive = filterPlaylistId === playlist.id
+
+                                return (
+                                  <div
+                                    key={playlist.id}
+                                    className={`group rounded-md transition-colors ${isActive ? 'bg-primary/10 ring-1 ring-primary/40' : 'hover:bg-accent/70'} ${draggingPlaylistId === playlist.id ? 'opacity-60' : ''}`}
+                                    onDragOver={(event) => event.preventDefault()}
+                                    onDrop={() => handlePlaylistDrop(playlist)}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => selectPlaylist(playlist)}
+                                      className="flex w-full min-w-0 items-center gap-1.5 px-2 py-1.5 text-left"
+                                    >
+                                      <span
+                                        draggable
+                                        className="shrink-0 cursor-grab active:cursor-grabbing"
+                                        onClick={(event) => event.stopPropagation()}
+                                        onDragStart={(event) => {
+                                          event.stopPropagation()
+                                          event.dataTransfer.effectAllowed = 'move'
+                                          setDraggingPlaylistId(playlist.id)
+                                        }}
+                                        onDragEnd={() => setDraggingPlaylistId(null)}
+                                      >
+                                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                                      </span>
+                                      <div className="min-w-0 flex-1">
+                                        <p className={`truncate text-xs font-medium ${isActive ? 'text-primary' : 'text-foreground'}`}>{playlist.name}</p>
+                                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                          <span>{playlistVideoCounts[playlist.id] ?? 0}개</span>
+                                          <span>·</span>
+                                          <span>{difficultyLabels[playlist.difficulty ?? 'beginner']}</span>
+                                          {!playlist.is_published && <span>· 비공개</span>}
+                                        </div>
+                                      </div>
+                                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                              {subPlaylists.length === 0 && (
+                                <p className="px-2 py-1 text-[11px] text-muted-foreground">재생목록 없음</p>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
-                  </TableCell>
-                  <TableCell>
-                    {video.thumbnail_url && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={video.thumbnail_url} alt={video.title} className="h-9 w-16 rounded object-cover" />
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <p className="line-clamp-2 text-sm font-medium text-foreground">{video.title}</p>
-                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                      {video.duration && <span>{video.duration}</span>}
-                      {video.youtube_published_at && <span>원본 {new Date(video.youtube_published_at).toLocaleDateString('ko-KR')}</span>}
-                      {video.youtube_channel_name && <span>출처 {video.youtube_channel_name}</span>}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-xs text-muted-foreground">{video.sub_category?.main_category?.name} / {video.sub_category?.name}</span>
-                      <div className="flex flex-wrap gap-1">
-                        <Badge variant="secondary" className="w-fit text-xs">{video.playlist?.name ?? '재생목록 없음'}</Badge>
-                        <Badge variant="outline" className="w-fit text-xs">
-                          {difficultyLabels[video.playlist?.difficulty ?? video.difficulty ?? 'beginner']}
-                        </Badge>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={() => toggleVideoPublish(video)}>
-                      {video.is_published ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                      {video.is_published ? '공개' : '비공개'}
-                    </Button>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
-                        setVideoForm({
-                          title: video.title,
-                          description: video.description ?? '',
-                          youtube_url: video.youtube_url,
-                          playlist_id: video.playlist_id ?? '',
-                          is_published: video.is_published,
-                          duration: video.duration ?? '',
-                          youtube_published_at: video.youtube_published_at,
-                          youtube_channel_name: video.youtube_channel_name ?? '',
-                        })
-                        setVideoModal({ open: true, editing: video })
-                      }}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteVideo(video.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </aside>
+
+        <section className="min-w-0 space-y-4">
+          <div className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+            <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>{selectedContextDescription}</span>
+                  <span>·</span>
+                  <span>{selectedScopePlaylistCount}개 재생목록</span>
+                  <span>·</span>
+                  <span>{filtered.length}개 영상</span>
+                </div>
+                <h2 className="mt-1 truncate text-xl font-semibold text-foreground">{selectedContextTitle}</h2>
+              </div>
+
+              {selectedFilterPlaylist && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openVideoCreateForPlaylist(selectedFilterPlaylist.id)}>
+                    <Plus className="h-3.5 w-3.5" />
+                    영상 추가
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => {
+                      setYoutubePlaylistUrl('')
+                      setPlaylistImportModal({ open: true, playlist: selectedFilterPlaylist })
+                    }}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    가져오기
+                  </Button>
+                  <Button variant="outline" size="sm" className="gap-1.5" onClick={() => togglePlaylistPublish(selectedFilterPlaylist)}>
+                    {selectedFilterPlaylist.is_published ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                    {selectedFilterPlaylist.is_published ? '공개' : '비공개'}
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
+                    setPlaylistForm({
+                      name: selectedFilterPlaylist.name,
+                      slug: selectedFilterPlaylist.slug,
+                      description: selectedFilterPlaylist.description ?? '',
+                      thumbnail_url: selectedFilterPlaylist.thumbnail_url ?? '',
+                      sub_category_id: selectedFilterPlaylist.sub_category_id,
+                      difficulty: selectedFilterPlaylist.difficulty ?? 'beginner',
+                      is_published: selectedFilterPlaylist.is_published,
+                    })
+                    setPlaylistModal({ open: true, editing: selectedFilterPlaylist })
+                  }}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deletePlaylist(selectedFilterPlaylist.id)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-9"
+                  placeholder="선택한 범위 안에서 제목으로 검색"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </div>
+              <Select value={sortBy} onValueChange={(value) => setSortBy((value ?? 'sort_order') as VideoSort)}>
+                <SelectTrigger className="w-full md:w-52">
+                  <SelectValue placeholder="정렬">{sortLabels[sortBy]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sort_order">재생목록 순서</SelectItem>
+                  <SelectItem value="created_desc">등록순</SelectItem>
+                  <SelectItem value="title_asc">이름순</SelectItem>
+                  <SelectItem value="youtube_published_desc">유튜브 원본 날짜순</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border bg-card">
+            <Table className="table-fixed">
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="w-16">순서</TableHead>
+                  <TableHead className="w-20">썸네일</TableHead>
+                  <TableHead className="w-[32%] min-w-0">제목</TableHead>
+                  <TableHead className="w-[34%]">재생목록</TableHead>
+                  <TableHead className="w-24">상태</TableHead>
+                  <TableHead className="w-14 text-right">액션</TableHead>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              </TableHeader>
+              <TableBody>
+                {filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                      영상이 없습니다
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filtered.map((video, idx) => (
+                    <TableRow
+                      key={video.id}
+                      className={draggingVideoId === video.id ? 'opacity-60' : undefined}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={() => handleVideoDrop(video)}
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <span
+                            draggable
+                            className="cursor-grab active:cursor-grabbing"
+                            onDragStart={(event) => {
+                              event.dataTransfer.effectAllowed = 'move'
+                              setDraggingVideoId(video.id)
+                            }}
+                            onDragEnd={() => setDraggingVideoId(null)}
+                          >
+                            <GripVertical className="h-4 w-4 text-muted-foreground" />
+                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => moveVideo(video.id, 'up')} disabled={idx === 0}>↑</Button>
+                            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => moveVideo(video.id, 'down')} disabled={idx === filtered.length - 1}>↓</Button>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {video.thumbnail_url && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={video.thumbnail_url} alt={video.title} className="h-9 w-16 rounded object-cover" />
+                        )}
+                      </TableCell>
+                      <TableCell className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{video.title}</p>
+                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                          {video.duration && <span>{video.duration}</span>}
+                          {video.youtube_published_at && <span>원본 {new Date(video.youtube_published_at).toLocaleDateString('ko-KR')}</span>}
+                          {video.youtube_channel_name && <span>출처 {video.youtube_channel_name}</span>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="min-w-0">
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                          <span className="truncate text-xs text-muted-foreground">{video.sub_category?.main_category?.name} / {video.sub_category?.name}</span>
+                          <div className="flex min-w-0 flex-wrap gap-1">
+                            <Badge variant="secondary" className="max-w-full truncate text-xs">{video.playlist?.name ?? '재생목록 없음'}</Badge>
+                            <Badge variant="outline" className="w-fit text-xs">
+                              {difficultyLabels[video.playlist?.difficulty ?? video.difficulty ?? 'beginner']}
+                            </Badge>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={() => toggleVideoPublish(video)}>
+                          {video.is_published ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                          {video.is_published ? '공개' : '비공개'}
+                        </Button>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
+                            setVideoForm({
+                              title: video.title,
+                              description: video.description ?? '',
+                              youtube_url: video.youtube_url,
+                              playlist_id: video.playlist_id ?? '',
+                              is_published: video.is_published,
+                              duration: video.duration ?? '',
+                              youtube_published_at: video.youtube_published_at,
+                              youtube_channel_name: video.youtube_channel_name ?? '',
+                            })
+                            setVideoModal({ open: true, editing: video })
+                          }}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteVideo(video.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </section>
       </div>
 
       <Dialog open={playlistModal.open} onOpenChange={(open) => setPlaylistModal({ open, editing: null })}>
@@ -962,19 +1014,19 @@ export function VideoManager({ initialVideos, initialPlaylists, categories }: Pr
       </Dialog>
 
       <Dialog open={videoModal.open} onOpenChange={(open) => setVideoModal({ open, editing: null })}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-lg overflow-hidden">
           <DialogHeader>
             <DialogTitle>{videoModal.editing ? '영상 수정' : '영상 추가'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
+          <div className="min-w-0 space-y-4 py-2">
+            <div className="min-w-0 space-y-2">
               <Label>YouTube URL *</Label>
-              <div className="flex gap-2">
+              <div className="flex min-w-0 gap-2">
                 <Input
                   value={videoForm.youtube_url}
                   onChange={(event) => handleUrlChange(event.target.value)}
                   placeholder="https://www.youtube.com/watch?v=..."
-                  className="flex-1"
+                  className="min-w-0 flex-1"
                 />
                 {urlLoading && <Loader2 className="mt-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
               </div>
@@ -996,14 +1048,16 @@ export function VideoManager({ initialVideos, initialPlaylists, categories }: Pr
                 </div>
               )}
             </div>
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label>재생목록 *</Label>
               <Select value={videoForm.playlist_id} onValueChange={(value) => setVideoForm({ ...videoForm, playlist_id: value ?? '' })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="재생목록 선택">
-                    {selectedVideoPlaylist
-                      ? `${selectedVideoPlaylist.sub_category?.main_category?.name} / ${selectedVideoPlaylist.sub_category?.name} / ${selectedVideoPlaylist.name}`
-                      : undefined}
+                <SelectTrigger className="w-full min-w-0 overflow-hidden">
+                  <SelectValue placeholder="재생목록 선택" className="min-w-0 overflow-hidden">
+                    {selectedVideoPlaylist ? (
+                      <span className="block min-w-0 truncate">
+                        {selectedVideoPlaylist.sub_category?.main_category?.name} / {selectedVideoPlaylist.sub_category?.name} / {selectedVideoPlaylist.name}
+                      </span>
+                    ) : undefined}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>

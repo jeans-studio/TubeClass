@@ -91,6 +91,10 @@ function bestThumbnail(video: VideoDetails) {
   )
 }
 
+function isBlank(value: string | null | undefined) {
+  return !value || value.trim().length === 0
+}
+
 async function fetchPlaylistVideoIds(playlistId: string, apiKey: string, maxItems: number) {
   const ids: string[] = []
   let pageToken = ''
@@ -193,7 +197,7 @@ export async function POST(request: NextRequest) {
   const [{ data: existing }, { data: latest }] = await Promise.all([
     supabaseAdmin
       .from('videos')
-      .select('youtube_id')
+      .select('youtube_id, duration, thumbnail_url, youtube_published_at, youtube_channel_name, description')
       .eq('playlist_id', playlistId)
       .in('youtube_id', ids),
     supabaseAdmin
@@ -204,11 +208,23 @@ export async function POST(request: NextRequest) {
       .limit(1),
   ])
 
-  const existingIds = new Set((existing ?? []).map((item) => item.youtube_id))
+  const existingRows = existing ?? []
+  const existingIds = new Set(existingRows.map((item) => item.youtube_id))
   const newIds = ids.filter((id) => !existingIds.has(id))
+  const refreshIds = existingRows
+    .filter((item) =>
+      isBlank(item.duration) ||
+      isBlank(item.thumbnail_url) ||
+      isBlank(item.youtube_channel_name) ||
+      isBlank(item.description) ||
+      !item.youtube_published_at
+    )
+    .map((item) => item.youtube_id)
+  const details = newIds.length > 0 || refreshIds.length > 0
+    ? await fetchVideoDetails(Array.from(new Set([...newIds, ...refreshIds])), apiKey)
+    : new Map<string, VideoDetails>()
 
   if (newIds.length > 0) {
-    const details = await fetchVideoDetails(newIds, apiKey)
     const startOrder = latest?.[0]?.sort_order ?? 0
     const inserts = newIds
       .map((id, index) => {
@@ -247,6 +263,38 @@ export async function POST(request: NextRequest) {
           .eq('id', playlistId)
       }
     }
+  }
+
+  if (refreshIds.length > 0) {
+    await Promise.all(
+      existingRows.map(async (item) => {
+        const detail = details.get(item.youtube_id)
+        if (!detail) return
+
+        const nextDuration = formatYouTubeDuration(detail.contentDetails?.duration)
+        const nextThumbnail = bestThumbnail(detail)
+        const nextPublishedAt = detail.snippet?.publishedAt?.slice(0, 10) ?? null
+        const nextChannelName = detail.snippet?.channelTitle ?? ''
+        const nextDescription = detail.snippet?.description ?? ''
+        const update: Record<string, string | null> = {}
+
+        if (isBlank(item.duration) && nextDuration) update.duration = nextDuration
+        if (isBlank(item.thumbnail_url) && nextThumbnail) update.thumbnail_url = nextThumbnail
+        if (!item.youtube_published_at && nextPublishedAt) update.youtube_published_at = nextPublishedAt
+        if (isBlank(item.youtube_channel_name) && nextChannelName) update.youtube_channel_name = nextChannelName
+        if (isBlank(item.description) && nextDescription) update.description = nextDescription
+
+        if (Object.keys(update).length === 0) return
+
+        const { error: updateError } = await supabaseAdmin
+          .from('videos')
+          .update(update)
+          .eq('playlist_id', playlistId)
+          .eq('youtube_id', item.youtube_id)
+
+        if (updateError) throw updateError
+      })
+    )
   }
 
   const [{ data: videos, error: videosError }, { data: playlists, error: playlistsError }] = await Promise.all([

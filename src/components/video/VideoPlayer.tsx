@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getYouTubeEmbedUrl } from '@/lib/youtube'
 import { Button } from '@/components/ui/button'
@@ -17,6 +18,7 @@ interface VideoPlayerProps {
 }
 
 export function VideoPlayer({ videoId, youtubeId, title, initialStatus, userId }: VideoPlayerProps) {
+  const router = useRouter()
   const [status, setStatus] = useState<'learning' | 'completed' | null>(initialStatus ?? null)
   const [saving, setSaving] = useState(false)
 
@@ -26,7 +28,10 @@ export function VideoPlayer({ videoId, youtubeId, title, initialStatus, userId }
     const supabase = createClient()
     supabase
       .from('watch_history')
-      .upsert({ user_id: userId, video_id: videoId, watched_at: new Date().toISOString() })
+      .upsert(
+        { user_id: userId, video_id: videoId, watched_at: new Date().toISOString() },
+        { onConflict: 'user_id,video_id' }
+      )
       .then(() => {})
   }, [videoId, userId])
 
@@ -34,14 +39,38 @@ export function VideoPlayer({ videoId, youtubeId, title, initialStatus, userId }
     if (!userId) return
     setSaving(true)
     const supabase = createClient()
+
+    if (status === newStatus) {
+      const { error } = await supabase
+        .from('video_progress')
+        .delete()
+        .eq('user_id', userId)
+        .eq('video_id', videoId)
+
+      if (error) {
+        toast.error('저장 실패')
+      } else {
+        setStatus(null)
+        toast.success('학습 상태를 해제했습니다')
+        router.refresh()
+      }
+      setSaving(false)
+      return
+    }
+
     const { error } = await supabase
       .from('video_progress')
-      .upsert({ user_id: userId, video_id: videoId, status: newStatus })
+      .upsert(
+        { user_id: userId, video_id: videoId, status: newStatus },
+        { onConflict: 'user_id,video_id' }
+      )
+
     if (error) {
       toast.error('저장 실패')
     } else {
       setStatus(newStatus)
       toast.success(newStatus === 'completed' ? '완료로 표시했습니다' : '학습중으로 표시했습니다')
+      router.refresh()
     }
     setSaving(false)
   }

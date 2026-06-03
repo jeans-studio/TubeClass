@@ -6,6 +6,10 @@ import { ListVideo, PlayCircle } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  summarizePlaylistProgressFromRecord,
+  type ProgressStatus,
+} from '@/lib/learning-progress'
 import { cn } from '@/lib/utils'
 import type { Playlist, Video } from '@/types'
 
@@ -18,6 +22,7 @@ interface PlaylistDifficultyTabsProps {
   playlists: PlaylistWithVideos[]
   mainSlug: string
   subSlug: string
+  progressByVideoId: Record<string, ProgressStatus>
 }
 
 const difficultyTabs: { value: DifficultyFilter; label: string }[] = [
@@ -41,6 +46,7 @@ export function PlaylistDifficultyTabs({
   playlists,
   mainSlug,
   subSlug,
+  progressByVideoId,
 }: PlaylistDifficultyTabsProps) {
   const [activeDifficulty, setActiveDifficulty] = useState<DifficultyFilter>('all')
 
@@ -94,6 +100,7 @@ export function PlaylistDifficultyTabs({
             const videos = playlist.videos ?? []
             const thumbnail = playlist.thumbnail_url || videos.find((video) => video.thumbnail_url)?.thumbnail_url
             const firstVideo = videos[0]
+            const progressSummary = summarizePlaylistProgressFromRecord(videos, progressByVideoId)
             const href = firstVideo
               ? `/learn/${mainSlug}/${subSlug}/${playlist.slug}/${firstVideo.id}`
               : `/learn/${mainSlug}/${subSlug}/${playlist.slug}`
@@ -111,17 +118,29 @@ export function PlaylistDifficultyTabs({
                       </div>
                     )}
                     <div className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/20" />
-                    <Badge variant="secondary" className="absolute left-2 top-2 text-xs">
-                      {videos.length}개 강의
-                    </Badge>
-                    <Badge variant="outline" className="absolute right-2 top-2 bg-background/90 text-xs">
-                      {difficultyLabels[difficultyOf(playlist)]}
-                    </Badge>
                   </div>
                   <CardContent className="space-y-2 px-3 py-3">
                     <div className="flex items-start gap-2">
                       <ListVideo className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                            {progressSummary.totalCount}개 영상
+                          </Badge>
+                          {progressSummary.learningCount > 0 && (
+                            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                              {progressSummary.learningCount}개 학습
+                            </Badge>
+                          )}
+                          {progressSummary.completedCount > 0 && (
+                            <Badge variant="default" className="px-1.5 py-0 text-[10px]">
+                              {progressSummary.completedCount}개 완료
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                            {difficultyLabels[difficultyOf(playlist)]}
+                          </Badge>
+                        </div>
                         <p className="line-clamp-2 break-words text-sm font-semibold text-foreground">{playlist.name}</p>
                         {playlist.description && (
                           <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-muted-foreground">{playlist.description}</p>

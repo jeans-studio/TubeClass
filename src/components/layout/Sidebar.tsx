@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import type { MainCategory } from '@/types'
-import { BookOpen, FileText, History, Info, LayoutDashboard, MessageSquareText, PanelLeftClose, PanelLeftOpen, Settings, Shield } from 'lucide-react'
+import { BookOpen, FileText, Info, LayoutDashboard, MessageSquareText, PanelLeftClose, PanelLeftOpen, Settings, Shield } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSidebarCollapsed } from './useSidebarCollapsed'
 
@@ -90,19 +90,6 @@ export function Sidebar({ categories, isAdmin, isLoggedIn, onNavigate, collapsib
             >
               <BookOpen className="w-4 h-4" />
               {!isCollapsed && '나의 학습'}
-            </Link>
-          )}
-
-          {/* 최근 본 영상 — 로그인 시에만 */}
-          {isLoggedIn && (
-            <Link
-              href="/dashboard/history"
-              onClick={onNavigate}
-              className={linkClassName(pathname === '/dashboard/history')}
-              title="최근 본 영상"
-            >
-              <History className="w-4 h-4" />
-              {!isCollapsed && '최근 본 영상'}
             </Link>
           )}
 

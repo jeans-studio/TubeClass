@@ -6,7 +6,7 @@ import { VideoPlayer } from '@/components/video/VideoPlayer'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ChevronRight, PlayCircle } from 'lucide-react'
-import type { Playlist } from '@/types'
+import type { Playlist, VideoProgress } from '@/types'
 
 interface PageProps {
   params: Promise<{ mainSlug: string; subSlug: string; videoId: string; lessonId: string }>
@@ -44,8 +44,6 @@ export default async function VideoPage({ params }: PageProps) {
           .from('video_progress')
           .select('*')
           .eq('user_id', user.id)
-          .eq('video_id', lessonId)
-          .single()
       : Promise.resolve({ data: null }),
   ])
 
@@ -53,6 +51,9 @@ export default async function VideoPage({ params }: PageProps) {
 
   const videos = (playlist.videos ?? []).filter((item: { is_published?: boolean }) => item.is_published)
   const video = videos.find((item: { id: string }) => item.id === lessonId)
+  const progressItems = (progress ?? []) as VideoProgress[]
+  const progressByVideoId = new Map(progressItems.map((item) => [item.video_id, item.status]))
+  const currentProgressStatus = progressByVideoId.get(lessonId) ?? null
 
   if (!video) notFound()
 
@@ -80,6 +81,7 @@ export default async function VideoPage({ params }: PageProps) {
           <div className="max-h-[calc(100vh-11rem)] space-y-2.5 overflow-y-auto pr-1">
             {videos.map((item: { id: string; title: string; thumbnail_url: string | null; sort_order: number; youtube_id: string; duration?: string | null }, idx: number) => {
               const isCurrent = item.id === lessonId
+              const itemStatus = progressByVideoId.get(item.id)
               return (
                 <Link key={item.id} href={`/learn/${mainSlug}/${subSlug}/${playlistSlug}/${item.id}`} className="block">
                   <Card className={`overflow-hidden border ring-0 transition-all ${isCurrent ? 'border-primary/70 bg-primary/5 shadow-sm' : 'hover:border-primary/30 hover:shadow-sm'}`}>
@@ -101,7 +103,14 @@ export default async function VideoPage({ params }: PageProps) {
                         <p className={`line-clamp-2 text-xs leading-snug ${isCurrent ? 'font-medium text-primary' : 'text-foreground'}`}>
                           {item.title}
                         </p>
-                        {item.duration && <div className="mt-1 text-xs text-muted-foreground">{item.duration}</div>}
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          {itemStatus && (
+                            <Badge variant={itemStatus === 'completed' ? 'default' : 'secondary'} className="px-1.5 py-0 text-[10px]">
+                              {itemStatus === 'completed' ? '완료' : '학습중'}
+                            </Badge>
+                          )}
+                          {item.duration && <span className="text-xs text-muted-foreground">{item.duration}</span>}
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -113,10 +122,11 @@ export default async function VideoPage({ params }: PageProps) {
 
         <section className="order-1 min-w-0 space-y-4 xl:order-2">
           <VideoPlayer
+            key={`${video.id}-${currentProgressStatus ?? 'none'}`}
             videoId={video.id}
             youtubeId={video.youtube_id}
             title={video.title}
-            initialStatus={progress?.status ?? null}
+            initialStatus={currentProgressStatus}
             userId={user?.id ?? null}
           />
           <div>

@@ -1,9 +1,11 @@
+import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronRight, ListVideo } from 'lucide-react'
 import { PlaylistDifficultyTabs } from './PlaylistDifficultyTabs'
-import type { Playlist, Video } from '@/types'
+import type { ProgressStatus } from '@/lib/learning-progress'
+import type { Playlist, Video, VideoProgress } from '@/types'
 
 interface PageProps {
   params: Promise<{ mainSlug: string; subSlug: string }>
@@ -15,16 +17,26 @@ type PlaylistWithVideos = Playlist & {
 
 export default async function SubCategoryPage({ params }: PageProps) {
   const { mainSlug, subSlug } = await params
+  const supabase = await createClient()
   const supabaseAdmin = createAdminClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
-  const { data: subCategory } = await supabaseAdmin
-    .from('sub_categories')
-    .select('*, main_category:main_categories!inner(id, name, slug), playlists(*, videos(*, playlist_id))')
-    .eq('slug', subSlug)
-    .eq('main_category.slug', mainSlug)
-    .order('sort_order', { referencedTable: 'playlists' })
-    .order('sort_order', { referencedTable: 'playlists.videos' })
-    .single()
+  const [{ data: subCategory }, { data: progress }] = await Promise.all([
+    supabaseAdmin
+      .from('sub_categories')
+      .select('*, main_category:main_categories!inner(id, name, slug), playlists(*, videos(*, playlist_id))')
+      .eq('slug', subSlug)
+      .eq('main_category.slug', mainSlug)
+      .order('sort_order', { referencedTable: 'playlists' })
+      .order('sort_order', { referencedTable: 'playlists.videos' })
+      .single(),
+    user
+      ? supabase
+          .from('video_progress')
+          .select('video_id, status')
+          .eq('user_id', user.id)
+      : Promise.resolve({ data: null }),
+  ])
 
   if (!subCategory) notFound()
 
@@ -36,6 +48,9 @@ export default async function SubCategoryPage({ params }: PageProps) {
     }))
 
   const totalVideos = playlists.reduce((sum, playlist) => sum + (playlist.videos?.length ?? 0), 0)
+  const progressByVideoId = Object.fromEntries(
+    ((progress ?? []) as Pick<VideoProgress, 'video_id' | 'status'>[]).map((item) => [item.video_id, item.status])
+  ) as Record<string, ProgressStatus>
 
   return (
     <div className="w-full p-4 md:p-6">
@@ -63,7 +78,12 @@ export default async function SubCategoryPage({ params }: PageProps) {
           <p>아직 등록된 재생목록이 없습니다</p>
         </div>
       ) : (
-        <PlaylistDifficultyTabs playlists={playlists} mainSlug={mainSlug} subSlug={subSlug} />
+        <PlaylistDifficultyTabs
+          playlists={playlists}
+          mainSlug={mainSlug}
+          subSlug={subSlug}
+          progressByVideoId={progressByVideoId}
+        />
       )}
     </div>
   )

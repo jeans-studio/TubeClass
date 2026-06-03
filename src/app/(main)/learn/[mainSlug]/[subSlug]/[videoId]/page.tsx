@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ChevronRight, ListVideo, PlayCircle } from 'lucide-react'
+import { summarizePlaylistProgress, type ProgressStatus } from '@/lib/learning-progress'
 import type { Playlist, Video, VideoProgress } from '@/types'
 
 interface PageProps {
@@ -47,6 +48,10 @@ export default async function PlaylistPage({ params }: PageProps) {
 
   const videos: Video[] = (playlist.videos ?? []).filter((video: Video) => video.is_published)
   const progressItems = (progress ?? []) as VideoProgress[]
+  const progressByVideoId = new Map<string, ProgressStatus>(
+    progressItems.map((item) => [item.video_id, item.status])
+  )
+  const progressSummary = summarizePlaylistProgress(videos, progressByVideoId)
 
   return (
     <div className="w-full p-4 md:p-6">
@@ -73,7 +78,11 @@ export default async function PlaylistPage({ params }: PageProps) {
           <h1 className="line-clamp-2 text-xl font-semibold text-foreground">{playlist.name}</h1>
           {playlist.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{playlist.description}</p>}
         </div>
-        <span className="shrink-0 text-sm text-muted-foreground">{videos.length}개 강의</span>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+          <span>{progressSummary.totalCount}개 영상</span>
+          {progressSummary.learningCount > 0 && <span>· {progressSummary.learningCount}개 학습</span>}
+          {progressSummary.completedCount > 0 && <span>· {progressSummary.completedCount}개 완료</span>}
+        </div>
       </div>
 
       {videos.length === 0 ? (
@@ -84,7 +93,7 @@ export default async function PlaylistPage({ params }: PageProps) {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {videos.map((video, idx) => {
-            const prog = progressItems.find((item) => item.video_id === video.id)
+            const status = progressByVideoId.get(video.id)
 
             return (
               <Link key={video.id} href={`/learn/${mainSlug}/${subSlug}/${playlistSlug}/${video.id}`}>
@@ -101,17 +110,15 @@ export default async function PlaylistPage({ params }: PageProps) {
                     <div className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs font-bold text-white">
                       {idx + 1}
                     </div>
-                    {prog && (
-                      <div className="absolute right-2 top-2">
-                        <Badge variant={prog.status === 'completed' ? 'default' : 'secondary'} className="py-0 text-xs">
-                          {prog.status === 'completed' ? '완료' : '학습중'}
-                        </Badge>
-                      </div>
-                    )}
                   </div>
                   <CardContent className="px-3 py-3">
                     <p className="line-clamp-2 text-sm font-medium text-foreground">{video.title}</p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                      {status && (
+                        <Badge variant={status === 'completed' ? 'default' : 'secondary'} className="px-1.5 py-0 text-[10px]">
+                          {status === 'completed' ? '완료' : '학습중'}
+                        </Badge>
+                      )}
                       {video.duration && <span>{video.duration}</span>}
                       {video.youtube_channel_name && <span>출처 {video.youtube_channel_name}</span>}
                     </div>

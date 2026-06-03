@@ -26,18 +26,19 @@ export default function AboutPage() {
               <div className="space-y-5">
                 <p className="text-sm font-medium text-muted-foreground">AI를 배우는 가장 현실적인 방법</p>
                 <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-foreground md:text-6xl">
-                  흩어진 YouTube
+                  흩어진 YouTube 강의를
                   <br />
-                  강의를 하나의 학습 흐름으로
-                  <br />
+                  하나의 학습 흐름으로 <br />
                   정리합니다.
                 </h1>
               </div>
-              <div className="max-w-3xl space-y-2 text-base leading-8 text-muted-foreground md:text-lg">
-                <p>TubeClass는 AI 개발과 AI 활용을 배우려는 사람을 위해</p>
-                <p>공개 YouTube 강의를 주제, 재생목록, 난이도 기준으로 다시 묶는 큐레이션 학습 플랫폼입니다.</p>
-                <p>좋은 영상은 많지만, 어디서 시작하고 어떤 순서로 이어갈지 막막한 문제를 줄이는 데 집중합니다.</p>
-              </div>
+              <p className="max-w-3xl text-base leading-8 text-muted-foreground md:text-lg">
+                TubeClass는 AI 개발과 AI 활용을 배우려는 사람을 위해
+                <br />
+                공개 YouTube 강의를 주제, 재생목록, 난이도 기준으로 다시 묶는 큐레이션 학습 플랫폼입니다.
+                <br />
+                좋은 영상은 많지만, 어디서 시작하고 어떤 순서로 이어갈지 막막한 문제를 줄이는 데 집중합니다.
+              </p>
             </div>
           </div>
         </div>

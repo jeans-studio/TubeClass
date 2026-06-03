@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ChevronRight, Clock, FolderOpen, ListVideo, PlayCircle } from 'lucide-react'
-import type { MainCategory, Playlist, Video } from '@/types'
+import { summarizePlaylistProgress, type ProgressStatus } from '@/lib/learning-progress'
+import type { MainCategory, Playlist, Video, VideoProgress } from '@/types'
 
 interface PageProps {
   params: Promise<{ mainSlug: string }>
@@ -54,7 +55,7 @@ export default async function MainCategoryPage({ params }: PageProps) {
   const supabaseAdmin = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const [{ data: mainCategory }, { data: history }] = await Promise.all([
+  const [{ data: mainCategory }, { data: history }, { data: progress }] = await Promise.all([
     supabaseAdmin
       .from('main_categories')
       .select('*, sub_categories(id, name, slug, sort_order, main_category_id, description, created_at, updated_at, playlists(*, videos(*, playlist_id)))')
@@ -69,6 +70,12 @@ export default async function MainCategoryPage({ params }: PageProps) {
           .eq('user_id', user.id)
           .order('watched_at', { ascending: false })
           .limit(24)
+      : Promise.resolve({ data: null }),
+    user
+      ? supabase
+          .from('video_progress')
+          .select('video_id, status')
+          .eq('user_id', user.id)
       : Promise.resolve({ data: null }),
   ])
 
@@ -91,6 +98,9 @@ export default async function MainCategoryPage({ params }: PageProps) {
   const recentWatched = ((history ?? []) as HistoryItem[])
     .filter((item) => item.video?.is_published && item.video.playlist?.slug && item.video.sub_category?.main_category?.slug === mainSlug)
     .slice(0, 6)
+  const progressByVideoId = new Map<string, ProgressStatus>(
+    ((progress ?? []) as Pick<VideoProgress, 'video_id' | 'status'>[]).map((item) => [item.video_id, item.status])
+  )
 
   return (
     <div className="w-full space-y-8 p-4 md:p-6">
@@ -170,7 +180,7 @@ export default async function MainCategoryPage({ params }: PageProps) {
               ) : (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
                   {playlists.map((playlist) => (
-                    <SmallPlaylistCard key={playlist.id} playlist={playlist} />
+                    <SmallPlaylistCard key={playlist.id} playlist={playlist} progressByVideoId={progressByVideoId} />
                   ))}
                 </div>
               )}
@@ -221,10 +231,17 @@ function SmallVideoCard({ video, meta }: { video: CategoryVideo; meta?: string }
   )
 }
 
-function SmallPlaylistCard({ playlist }: { playlist: CategoryPlaylist }) {
+function SmallPlaylistCard({
+  playlist,
+  progressByVideoId,
+}: {
+  playlist: CategoryPlaylist
+  progressByVideoId: ReadonlyMap<string, ProgressStatus>
+}) {
   const videos = playlist.videos ?? []
   const thumbnail = playlist.thumbnail_url || videos.find((video) => video.thumbnail_url)?.thumbnail_url
   const firstVideo = videos[0]
+  const progressSummary = summarizePlaylistProgress(videos, progressByVideoId)
   const href = firstVideo
     ? `/learn/${playlist.mainCategorySlug}/${playlist.subCategorySlug}/${playlist.slug}/${firstVideo.id}`
     : `/learn/${playlist.mainCategorySlug}/${playlist.subCategorySlug}/${playlist.slug}`
@@ -241,14 +258,26 @@ function SmallPlaylistCard({ playlist }: { playlist: CategoryPlaylist }) {
               <ListVideo className="h-8 w-8" />
             </div>
           )}
-          <Badge variant="secondary" className="absolute left-2 top-2 px-1.5 py-0 text-[10px]">
-            {videos.length}개 강의
-          </Badge>
-          <Badge variant="outline" className="absolute right-2 top-2 bg-background/90 px-1.5 py-0 text-[10px]">
-            {difficultyLabels[playlist.difficulty ?? 'beginner']}
-          </Badge>
         </div>
         <CardContent className="space-y-1.5 px-2.5 py-2.5">
+          <div className="flex flex-wrap items-center gap-1">
+            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+              {progressSummary.totalCount}개 영상
+            </Badge>
+            {progressSummary.learningCount > 0 && (
+              <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                {progressSummary.learningCount}개 학습
+              </Badge>
+            )}
+            {progressSummary.completedCount > 0 && (
+              <Badge variant="default" className="px-1.5 py-0 text-[10px]">
+                {progressSummary.completedCount}개 완료
+              </Badge>
+            )}
+            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+              {difficultyLabels[playlist.difficulty ?? 'beginner']}
+            </Badge>
+          </div>
           <p className="line-clamp-2 break-words text-xs font-medium leading-snug text-foreground">{playlist.name}</p>
           {playlist.description && (
             <p className="line-clamp-2 break-words text-[11px] leading-4 text-muted-foreground">{playlist.description}</p>

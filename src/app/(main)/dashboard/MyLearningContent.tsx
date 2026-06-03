@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { AchievementBadge } from '@/components/badges/AchievementBadge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { CollapsibleSection } from './CollapsibleSection'
 import Link from 'next/link'
 import {
   BookOpen,
@@ -38,6 +39,58 @@ interface LearningAchievement {
   shape: BadgeShape
   icon: typeof Trophy
   imageUrl?: string | null
+}
+
+const achievementGroups = [
+  {
+    title: '학습 시작',
+    description: '처음 학습을 시작했는지 확인합니다',
+    match: (key: string) => key === 'first-learning',
+  },
+  {
+    title: '연속 학습',
+    description: '매일 이어서 본 기록을 기준으로 집계됩니다',
+    match: (key: string) => key.startsWith('streak-'),
+  },
+  {
+    title: '영상 완료',
+    description: '완료 처리한 영상 수를 기준으로 집계됩니다',
+    match: (key: string) => key.startsWith('videos-'),
+  },
+  {
+    title: '재생목록 완주',
+    description: '재생목록 안의 공개 영상을 모두 완료하면 집계됩니다',
+    match: (key: string) => key.startsWith('playlists-'),
+  },
+  {
+    title: '카테고리 탐색',
+    description: '서로 다른 대카테고리의 학습 기록을 기준으로 집계됩니다',
+    match: (key: string) => key.startsWith('categories-'),
+  },
+  {
+    title: '피드백 참여',
+    description: '서비스 개선 의견을 남긴 기록을 기준으로 집계됩니다',
+    match: (key: string) => key.startsWith('feedback-'),
+  },
+]
+
+type ProgressVideo = Video & {
+  playlist: { slug: string } | null
+  sub_category: {
+    name: string
+    slug: string
+    main_category: {
+      name: string
+      slug: string
+    }
+  } | null
+}
+
+type ProgressItem = {
+  video_id: string
+  status: 'learning' | 'completed'
+  updated_at: string
+  video?: ProgressVideo | null
 }
 
 function getSeoulDateKey(date: string | Date) {
@@ -173,7 +226,11 @@ export async function MyLearningContent() {
           .order('watched_at', { ascending: false })
       : Promise.resolve({ data: null }),
     user
-      ? supabase.from('video_progress').select('*').eq('user_id', user.id)
+      ? supabaseAdmin
+          .from('video_progress')
+          .select('*, video:videos(*, playlist:playlists(slug), sub_category:sub_categories(name, slug, main_category:main_categories(name, slug)))')
+          .eq('user_id', user.id)
+          .order('updated_at', { ascending: false })
       : Promise.resolve({ data: null }),
     supabaseAdmin
       .from('playlists')
@@ -199,6 +256,10 @@ export async function MyLearningContent() {
     acc + (mc.sub_categories?.reduce((a: number, sc: { videos?: Video[] }) => a + (sc.videos?.length ?? 0), 0) ?? 0), 0) ?? 0
   const completedCount = progress?.filter((p) => p.status === 'completed').length ?? 0
   const learningCount = progress?.filter((p) => p.status === 'learning').length ?? 0
+  const progressItems = (progress ?? []) as unknown as ProgressItem[]
+  const learningVideos = progressItems
+    .filter((item) => item.status === 'learning' && item.video?.is_published && item.video.playlist?.slug && item.video.sub_category?.main_category?.slug)
+    .map((item) => item.video as ProgressVideo)
   const historyItems = history ?? []
   const watchedDays = new Set(historyItems.map((item) => getSeoulDateKey(item.watched_at))).size
   const currentStreak = getCurrentStreak(historyItems.map((item) => item.watched_at))
@@ -229,6 +290,18 @@ export async function MyLearningContent() {
       })
     : []
   const achievedCount = achievements.filter((achievement) => achievement.achieved).length
+  const groupedAchievements = achievementGroups
+    .map((group) => {
+      const items = achievements.filter((achievement) => group.match(achievement.key))
+      const achievedItems = items.filter((achievement) => achievement.achieved).length
+
+      return {
+        ...group,
+        items,
+        achievedItems,
+      }
+    })
+    .filter((group) => group.items.length > 0)
   const categoryProgressItems = publishedCategories
     .map((main) => {
       const subCategories = main.sub_categories?.map((sub) => {
@@ -306,14 +379,69 @@ export async function MyLearningContent() {
         )}
       </div>
 
+      {user && learningVideos.length > 0 && (
+        <CollapsibleSection
+          title="학습중인 영상"
+          description="이어볼 강의를 바로 확인합니다"
+          aside={
+            <Badge variant="secondary">
+              {learningVideos.length}개
+            </Badge>
+          }
+        >
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+            {learningVideos.map((video) => {
+              if (!video.playlist?.slug || !video.sub_category?.main_category?.slug) return null
+
+              return (
+                <Link
+                  key={video.id}
+                  href={`/learn/${video.sub_category.main_category.slug}/${video.sub_category.slug}/${video.playlist.slug}/${video.id}`}
+                >
+                  <Card className="group gap-0 overflow-hidden pb-0 transition-colors hover:border-primary/40">
+                    <CardContent className="flex h-[5.75rem] gap-3 p-2.5">
+                      <div className="relative aspect-video h-full shrink-0 overflow-hidden rounded-md bg-muted">
+                        {video.thumbnail_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={video.thumbnail_url} alt={video.title} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                            <PlayCircle className="h-7 w-7" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex min-w-0 flex-1 flex-col justify-between py-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                            학습중
+                          </Badge>
+                          {video.duration && (
+                            <span className="text-xs text-muted-foreground">{video.duration}</span>
+                          )}
+                        </div>
+                        <p className="line-clamp-2 break-words text-sm font-medium leading-5 text-foreground">{video.title}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {video.sub_category.main_category.name} / {video.sub_category.name}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              )
+            })}
+          </div>
+        </CollapsibleSection>
+      )}
+
       {user && history && history.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-foreground">최근 본 영상</h2>
+        <CollapsibleSection
+          title="최근 본 영상"
+          aside={
             <Link href="/dashboard/history" className="text-sm text-primary hover:underline">
               전체 보기
             </Link>
-          </div>
+          }
+        >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {history.slice(0, 6).map((item) => {
               const video = item.video as Video & {
@@ -353,38 +481,13 @@ export async function MyLearningContent() {
               )
             })}
           </div>
-        </section>
+        </CollapsibleSection>
       )}
 
-      {user && (
-        <section>
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">업적 뱃지</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {achievedCount}/{achievements.length}개 획득
-              </p>
-            </div>
-            <Badge variant="secondary" className="shrink-0">
-              현재 연속 {currentStreak}일
-            </Badge>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
-            {achievements.map(({ key, ...achievement }) => (
-              <AchievementBadge key={key} {...achievement} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section>
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold text-foreground">카테고리별 진도</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {user ? '시청 기록이 있는 카테고리만 보여줍니다' : '로그인하면 내 진도를 확인할 수 있습니다'}
-          </p>
-        </div>
-
+      <CollapsibleSection
+        title="카테고리별 진도"
+        description={user ? '시청 기록이 있는 카테고리만 보여줍니다' : '로그인하면 내 진도를 확인할 수 있습니다'}
+      >
         {user && categoryProgressItems.length === 0 ? (
           <Card className="pt-4">
             <CardContent className="px-4 py-0">
@@ -443,7 +546,41 @@ export async function MyLearningContent() {
             ))}
           </div>
         )}
-      </section>
+      </CollapsibleSection>
+
+      {user && (
+        <CollapsibleSection
+          title="업적 뱃지"
+          description={`${achievedCount}/${achievements.length}개 획득`}
+          defaultOpen={false}
+          aside={
+            <Badge variant="secondary">
+              현재 연속 {currentStreak}일
+            </Badge>
+          }
+        >
+          <div className="space-y-4">
+            {groupedAchievements.map((group) => (
+              <div key={group.title} className="space-y-2.5">
+                <div className="flex items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold text-foreground">{group.title}</h3>
+                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{group.description}</p>
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {group.achievedItems}/{group.items.length}개 획득
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
+                  {group.items.map(({ key, ...achievement }) => (
+                    <AchievementBadge key={key} {...achievement} compact />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
     </div>
   )
 }

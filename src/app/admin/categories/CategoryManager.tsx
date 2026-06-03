@@ -293,11 +293,11 @@ export function CategoryManager({ initialCategories }: Props) {
         {categories.map((main, mainIdx) => (
           <Card
             key={main.id}
-            className={`pt-4 transition-colors ${draggingMainId === main.id ? 'opacity-60' : ''}`}
+            className={`gap-0 py-0 transition-colors ${draggingMainId === main.id ? 'opacity-60' : ''}`}
             onDragOver={(event) => event.preventDefault()}
             onDrop={() => handleMainDrop(main.id)}
           >
-            <CardHeader className="pb-2">
+            <CardHeader className="px-4 py-3">
               <div className="flex items-center gap-2">
                 <span
                   draggable
@@ -330,7 +330,7 @@ export function CategoryManager({ initialCategories }: Props) {
             </CardHeader>
 
             {expanded.includes(main.id) && (
-              <CardContent className="pt-0">
+              <CardContent className="pb-4 pt-0">
                 <div className="ml-8 space-y-2">
                   {main.sub_categories?.map((sub, subIdx) => (
                     <div

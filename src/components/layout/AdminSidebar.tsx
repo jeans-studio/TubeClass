@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { FolderTree, MessageSquareText, Video, ArrowLeft, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -28,16 +29,24 @@ export function AdminSidebar() {
       )}
       data-collapsed={isCollapsed}
     >
-      <div className={cn('flex h-14 items-center border-b border-sidebar-border px-3', isCollapsed ? 'justify-center' : 'justify-between')}>
-        {!isCollapsed && (
-          <span className="min-w-0 truncate text-lg font-bold leading-none text-sidebar-foreground">
-            TubeClassAdmin
-          </span>
-        )}
+      <div className={cn('group/admin-sidebar-header relative flex h-14 items-center border-b border-sidebar-border px-3', isCollapsed ? 'justify-center' : 'justify-between')}>
+        <Link
+          href="/admin"
+          className={cn('flex min-w-0 items-center', !isCollapsed && 'gap-2')}
+          aria-label="TubeClass Admin 홈"
+        >
+          <Image src="/brand/symbol.svg" alt="" width={32} height={32} priority className="h-8 w-8 shrink-0 invert dark:invert-0" />
+          {!isCollapsed && (
+            <Image src="/brand/logo-admin.svg" alt="TubeClass Admin" width={130} height={32} priority className="h-8 w-auto shrink-0" />
+          )}
+        </Link>
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+          className={cn(
+            'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-3 focus-visible:ring-ring/50',
+            isCollapsed && 'absolute opacity-0 group-hover/admin-sidebar-header:opacity-100 focus-visible:opacity-100'
+          )}
           aria-label={isCollapsed ? 'LNB 펼치기' : 'LNB 접기'}
           title={isCollapsed ? 'LNB 펼치기' : 'LNB 접기'}
         >
