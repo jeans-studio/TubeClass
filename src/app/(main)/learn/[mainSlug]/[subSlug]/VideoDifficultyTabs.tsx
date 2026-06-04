@@ -94,7 +94,7 @@ export function VideoDifficultyTabs({
             return (
               <Link key={video.id} href={`/learn/${mainSlug}/${subSlug}/${playlistSlug}/${video.id}`}>
                 <Card className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer group">
-                  <div className="relative aspect-video w-full overflow-hidden bg-muted">
+                  <div className="relative aspect-video w-full overflow-hidden bg-muted thumbnail-frame">
                     {video.thumbnail_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover" />

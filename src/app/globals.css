@@ -143,3 +143,28 @@
     font-family: "SUIT Variable", "SUIT", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Segoe UI", sans-serif;
   }
 }
+
+@layer components {
+  .thumbnail-frame {
+    position: relative;
+  }
+
+  .thumbnail-frame::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 10%);
+  }
+
+  .thumbnail-image {
+    box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 10%);
+  }
+
+  .dark .thumbnail-frame::after,
+  .dark .thumbnail-image {
+    box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 10%);
+  }
+}

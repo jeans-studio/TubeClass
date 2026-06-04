@@ -279,7 +279,7 @@ function LearningPlaylistCard({ item }: { item: LearningPlaylist }) {
       className="group block w-[84vw] max-w-[380px] shrink-0 sm:w-[360px] md:w-[380px]"
     >
       <div className="flex h-28 overflow-hidden rounded-md border bg-card transition-colors hover:border-primary/40">
-        <div className="relative aspect-video h-full shrink-0 overflow-hidden bg-muted">
+        <div className="relative aspect-video h-full shrink-0 overflow-hidden bg-muted thumbnail-frame">
           {thumbnail ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -348,7 +348,7 @@ function PlaylistRailCard({
       className="group block w-[72vw] max-w-[320px] shrink-0 sm:w-[280px] md:w-[300px] lg:w-[320px]"
     >
       <div className="overflow-hidden rounded-md bg-card transition-transform duration-200 group-hover:-translate-y-0.5">
-        <div className="relative aspect-video w-full overflow-hidden rounded-md bg-muted">
+        <div className="relative aspect-video w-full overflow-hidden rounded-md bg-muted thumbnail-frame">
           {thumbnail ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img

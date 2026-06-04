@@ -98,7 +98,7 @@ export default async function PlaylistPage({ params }: PageProps) {
             return (
               <Link key={video.id} href={`/learn/${mainSlug}/${subSlug}/${playlistSlug}/${video.id}`}>
                 <Card className="group h-full overflow-hidden transition-shadow hover:shadow-md">
-                  <div className="relative aspect-video w-full overflow-hidden bg-muted">
+                  <div className="relative aspect-video w-full overflow-hidden bg-muted thumbnail-frame">
                     {video.thumbnail_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={video.thumbnail_url} alt={video.title} className="h-full w-full object-cover" />

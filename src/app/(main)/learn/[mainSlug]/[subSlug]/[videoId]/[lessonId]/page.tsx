@@ -89,7 +89,7 @@ export default async function VideoPage({ params }: PageProps) {
                       <div className="flex w-4 shrink-0 justify-center pt-0.5 text-xs text-muted-foreground">
                         {idx + 1}
                       </div>
-                      <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded bg-muted">
+                      <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded bg-muted thumbnail-frame">
                         {item.thumbnail_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={item.thumbnail_url} alt={item.title} className="h-full w-full object-cover" />

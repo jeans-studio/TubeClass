@@ -108,7 +108,7 @@ export function PlaylistDifficultyTabs({
             return (
               <Link key={playlist.id} href={href} className="min-w-0">
                 <Card className="group h-full overflow-hidden transition-shadow hover:shadow-sm">
-                  <div className="relative aspect-video w-full overflow-hidden bg-muted">
+                  <div className="relative aspect-video w-full overflow-hidden bg-muted thumbnail-frame">
                     {thumbnail ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={thumbnail} alt={playlist.name} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />

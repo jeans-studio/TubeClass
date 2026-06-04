@@ -1,11 +1,13 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import { ChevronDown, LogOut, User } from 'lucide-react'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ChevronDown, Loader2, LogOut, Trash2, User } from 'lucide-react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import type { Profile } from '@/types'
 import { toast } from 'sonner'
@@ -19,6 +21,8 @@ interface HeaderProps {
 
 export function Header({ user, profile, children }: HeaderProps) {
   const router = useRouter()
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   async function handleGoogleLogin() {
     const supabase = createClient()
@@ -33,6 +37,30 @@ export function Header({ user, profile, children }: HeaderProps) {
     await supabase.auth.signOut()
     toast.success('로그아웃되었습니다')
     router.refresh()
+  }
+
+  async function handleDeleteAccount() {
+    setIsDeleting(true)
+
+    try {
+      const response = await fetch('/api/account', { method: 'DELETE' })
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(result?.error ?? '회원 탈퇴 처리에 실패했습니다')
+      }
+
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      toast.success('회원 탈퇴가 완료되었습니다')
+      setDeleteDialogOpen(false)
+      router.push('/')
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '회원 탈퇴 처리에 실패했습니다')
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   if (!user) {
@@ -87,12 +115,35 @@ export function Header({ user, profile, children }: HeaderProps) {
             {email}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleLogout} className="text-destructive">
+          <DropdownMenuItem onClick={handleLogout}>
             <LogOut className="w-3.5 h-3.5 mr-2" />
             로그아웃
           </DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+            <Trash2 className="w-3.5 h-3.5 mr-2" />
+            회원 탈퇴
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>회원 탈퇴</DialogTitle>
+            <DialogDescription>
+              계정과 학습 기록이 삭제됩니다. 피드백에 연결된 작성자 정보도 제거되며, 이 작업은 되돌릴 수 없습니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" disabled={isDeleting} />}>
+              취소
+            </DialogClose>
+            <Button variant="destructive" onClick={handleDeleteAccount} disabled={isDeleting}>
+              {isDeleting && <Loader2 className="animate-spin" />}
+              탈퇴하기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </header>
   )
 }

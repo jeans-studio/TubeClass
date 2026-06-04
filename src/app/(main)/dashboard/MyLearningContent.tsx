@@ -400,7 +400,7 @@ export async function MyLearningContent() {
                 >
                   <Card className="group gap-0 overflow-hidden pb-0 transition-colors hover:border-primary/40">
                     <CardContent className="flex h-[5.75rem] gap-3 p-2.5">
-                      <div className="relative aspect-video h-full shrink-0 overflow-hidden rounded-md bg-muted">
+                      <div className="relative aspect-video h-full shrink-0 overflow-hidden rounded-md bg-muted thumbnail-frame">
                         {video.thumbnail_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={video.thumbnail_url} alt={video.title} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
@@ -456,7 +456,7 @@ export async function MyLearningContent() {
                   href={`/learn/${video.sub_category.main_category.slug}/${video.sub_category.slug}/${video.playlist.slug}/${video.id}`}
                 >
                   <Card className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer group">
-                    <div className="relative aspect-video w-full overflow-hidden bg-muted">
+                    <div className="relative aspect-video w-full overflow-hidden bg-muted thumbnail-frame">
                       {video.thumbnail_url && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover" />

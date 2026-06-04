@@ -855,7 +855,7 @@ export function VideoManager({ initialVideos, initialPlaylists, categories }: Pr
                       <TableCell>
                         {video.thumbnail_url && (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={video.thumbnail_url} alt={video.title} className="h-9 w-16 rounded object-cover" />
+                          <img src={video.thumbnail_url} alt={video.title} className="h-9 w-16 rounded object-cover thumbnail-image" />
                         )}
                       </TableCell>
                       <TableCell className="min-w-0">
@@ -967,7 +967,7 @@ export function VideoManager({ initialVideos, initialPlaylists, categories }: Pr
                 onChange={(event) => setPlaylistForm({ ...playlistForm, thumbnail_url: event.target.value })}
                 placeholder="https://..."
               />
-              <div className="aspect-video w-full overflow-hidden rounded-lg bg-muted">
+              <div className="aspect-video w-full overflow-hidden rounded-lg bg-muted thumbnail-frame">
                 {playlistForm.thumbnail_url.trim() ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -1031,7 +1031,7 @@ export function VideoManager({ initialVideos, initialPlaylists, categories }: Pr
                 {urlLoading && <Loader2 className="mt-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
               </div>
               {videoForm.youtube_url && extractYouTubeId(videoForm.youtube_url) && (
-                <div className="aspect-video w-full overflow-hidden rounded bg-muted">
+                <div className="aspect-video w-full overflow-hidden rounded bg-muted thumbnail-frame">
                   <iframe
                     src={`https://www.youtube.com/embed/${extractYouTubeId(videoForm.youtube_url) as string}`}
                     className="h-full w-full"
